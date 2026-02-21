@@ -44,10 +44,6 @@ def hex_to_rgb(value: str) -> tuple[int, int, int]:
     return tuple(int(cleaned[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def pixel_matches(pixel: tuple[int, int, int], target: tuple[int, int, int], tolerance: int) -> bool:
-    return all(abs(pixel[i] - target[i]) <= tolerance for i in range(3))
-
-
 def bgra_buffer_best_match(
     raw: bytes, targets: list[tuple[int, int, int]], tolerance: int
 ) -> tuple[int, int]:
@@ -129,17 +125,17 @@ class App:
             tk.StringVar(value=""),
         ]
         self.color_r_vars = [
-            tk.StringVar(value="255"),
+            tk.StringVar(value="127"),
             tk.StringVar(value=""),
             tk.StringVar(value=""),
         ]
         self.color_g_vars = [
-            tk.StringVar(value="0"),
+            tk.StringVar(value="49"),
             tk.StringVar(value=""),
             tk.StringVar(value=""),
         ]
         self.color_b_vars = [
-            tk.StringVar(value="0"),
+            tk.StringVar(value="7"),
             tk.StringVar(value=""),
             tk.StringVar(value=""),
         ]
@@ -379,12 +375,6 @@ class App:
                     self.color_r_vars[i].set(str(item.get("r", self.color_r_vars[i].get())))
                     self.color_g_vars[i].set(str(item.get("g", self.color_g_vars[i].get())))
                     self.color_b_vars[i].set(str(item.get("b", self.color_b_vars[i].get())))
-            else:
-                self.color_hex_vars[0].set(str(color.get("hex", self.color_hex_vars[0].get())))
-                self.color_r_vars[0].set(str(color.get("r", self.color_r_vars[0].get())))
-                self.color_g_vars[0].set(str(color.get("g", self.color_g_vars[0].get())))
-                self.color_b_vars[0].set(str(color.get("b", self.color_b_vars[0].get())))
-
             detection = data.get("detection", {})
             self.tolerance.set(str(detection.get("tolerance", self.tolerance.get())))
             self.interval_ms.set(str(detection.get("interval_ms", self.interval_ms.get())))
@@ -534,7 +524,6 @@ class App:
             if self.dx_camera is not None:
                 self.capture_backend = "dxcam"
         except Exception:
-            self.capture_backend = "mss" if mss is not None else "none"
             self.dx_camera = None
 
     def stop(self):
@@ -666,6 +655,9 @@ class App:
         self.preview_label = None
         self.preview_info = None
 
+    def _set_status(self, msg: str) -> None:
+        self.root.after(0, self.status_text.set, msg)
+
     def monitor_loop(self):
         last_beep_ts = 0.0
         sct = None
@@ -674,16 +666,16 @@ class App:
             sct = mss.mss()
 
         try:
-            while self.running:
-                zone = self.parse_zone()
-                targets = self.parse_targets()
-                tolerance = int(self.tolerance.get())
-                interval_ms = int(self.interval_ms.get())
-                freq = int(self.beep_freq.get())
-                dur = int(self.beep_dur.get())
-                cooldown_ms = int(self.cooldown_ms.get())
-                silence_ms = int(self.silence_ms.get())
+            zone = self.parse_zone()
+            targets = self.parse_targets()
+            tolerance = int(self.tolerance.get())
+            interval_ms = int(self.interval_ms.get())
+            freq = int(self.beep_freq.get())
+            dur = int(self.beep_dur.get())
+            cooldown_ms = int(self.cooldown_ms.get())
+            silence_ms = int(self.silence_ms.get())
 
+            while self.running:
                 match_count = 0
                 match_idx = -1
 
@@ -703,51 +695,29 @@ class App:
                     match_count, match_idx = bgra_buffer_best_match(shot.raw, targets, tolerance)
 
                 found = match_count > 0
-
                 now = time.time() * 1000
                 muted = now < self.mute_until_ms
                 muted_seconds_left = max(0, int((self.mute_until_ms - now + 999) // 1000))
+                color_i = match_idx + 1
 
                 if found and not muted and now - last_beep_ts >= cooldown_ms:
                     tone_mode = self._play_tone(freq, dur)
                     last_beep_ts = now
-                    if tone_mode == "beep":
-                        self.root.after(
-                            0,
-                            lambda count=match_count, color_i=match_idx + 1: self.status_text.set(
-                                f"Status: Color {color_i} found ({count} px). Tone played."
-                            ),
-                        )
-                    else:
-                        self.root.after(
-                            0,
-                            lambda count=match_count, color_i=match_idx + 1: self.status_text.set(
-                                f"Status: Color {color_i} found ({count} px). System alert played."
-                            ),
-                        )
+                    suffix = "Tone played." if tone_mode == "beep" else "System alert played."
+                    self._set_status(f"Status: Color {color_i} found ({match_count} px). {suffix}")
                 elif found and muted:
-                    self.root.after(
-                        0,
-                        lambda seconds=muted_seconds_left, count=match_count, color_i=match_idx + 1: self.status_text.set(
-                            f"Status: Color {color_i} found ({count} px, muted {seconds}s left)."
-                        ),
-                    )
+                    self._set_status(f"Status: Color {color_i} found ({match_count} px, muted {muted_seconds_left}s left).")
                 elif found:
-                    self.root.after(
-                        0,
-                        lambda count=match_count, color_i=match_idx + 1: self.status_text.set(
-                            f"Status: Color {color_i} found ({count} px), waiting cooldown..."
-                        ),
-                    )
+                    self._set_status(f"Status: Color {color_i} found ({match_count} px), waiting cooldown...")
                 else:
-                    self.root.after(0, lambda: self.status_text.set(f"Status: Monitoring ({self.capture_backend})..."))
+                    self._set_status(f"Status: Monitoring ({self.capture_backend})...")
 
                 sleep_ms = min(interval_ms, silence_ms) if muted else interval_ms
                 time.sleep(sleep_ms / 1000)
 
         except Exception as exc:
             self.running = False
-            self.root.after(0, lambda: self.status_text.set(f"Status: Error - {exc}"))
+            self._set_status(f"Status: Error - {exc}")
         finally:
             if sct is not None:
                 sct.close()
