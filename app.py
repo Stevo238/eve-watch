@@ -99,8 +99,8 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Screen Color Tone Watcher v1")
-        self.root.geometry("760x660")
-        self.root.minsize(680, 580)
+        self.root.geometry("900x610")
+        self.root.minsize(780, 540)
         self.root.resizable(True, True)
         self.config_path = self._resolve_profile_path()
 
@@ -115,42 +115,32 @@ class App:
         self.preview_after_id: str | None = None
         self._preview_zone_num: int = 1
 
+        self.zone1_enabled = tk.BooleanVar(value=True)
         self.zone_x = tk.StringVar(value="0")
         self.zone_y = tk.StringVar(value="0")
         self.zone_w = tk.StringVar(value="300")
         self.zone_h = tk.StringVar(value="200")
 
+        self.zone2_enabled = tk.BooleanVar(value=False)
         self.zone2_x = tk.StringVar(value="0")
         self.zone2_y = tk.StringVar(value="0")
         self.zone2_w = tk.StringVar(value="300")
         self.zone2_h = tk.StringVar(value="200")
-        self.zone2_enabled = tk.BooleanVar(value=False)
+
+        self.zone3_enabled = tk.BooleanVar(value=False)
+        self.zone3_x = tk.StringVar(value="0")
+        self.zone3_y = tk.StringVar(value="0")
+        self.zone3_w = tk.StringVar(value="300")
+        self.zone3_h = tk.StringVar(value="200")
 
         self.color_hex_vars = [
             tk.StringVar(value="#7F3107"),
             tk.StringVar(value=""),
             tk.StringVar(value=""),
         ]
-        self.color_r_vars = [
-            tk.StringVar(value="127"),
-            tk.StringVar(value=""),
-            tk.StringVar(value=""),
-        ]
-        self.color_g_vars = [
-            tk.StringVar(value="49"),
-            tk.StringVar(value=""),
-            tk.StringVar(value=""),
-        ]
-        self.color_b_vars = [
-            tk.StringVar(value="7"),
-            tk.StringVar(value=""),
-            tk.StringVar(value=""),
-        ]
 
         self.tolerance = tk.StringVar(value="15")
         self.interval_ms = tk.StringVar(value="50")
-        self.beep_freq = tk.StringVar(value="1200")
-        self.beep_dur = tk.StringVar(value="180")
         self.cooldown_ms = tk.StringVar(value="800")
         self.silence_ms = tk.StringVar(value="60000")
 
@@ -175,97 +165,77 @@ class App:
         frame = tk.Frame(self.root, padx=8, pady=6)
         frame.pack(fill="both", expand=True)
 
-        # --- Zones side by side ---
+        # --- 3 Watch Zones side by side ---
         zones_frame = tk.Frame(frame)
         zones_frame.pack(fill="x", pady=(0, 6))
         zones_frame.columnconfigure(0, weight=1)
         zones_frame.columnconfigure(1, weight=1)
+        zones_frame.columnconfigure(2, weight=1)
 
-        zone_box = tk.LabelFrame(zones_frame, text="Watch Zone 1", padx=6, pady=4)
-        zone_box.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
-        self._row(zone_box, "X", self.zone_x, 0)
-        self._row(zone_box, "Y", self.zone_y, 1)
-        self._row(zone_box, "Width", self.zone_w, 2)
-        self._row(zone_box, "Height", self.zone_h, 3)
-        tk.Button(zone_box, text="Select Zone", command=self.select_zone_overlay).grid(
-            row=4, column=0, columnspan=2, sticky="we", pady=(6, 2)
-        )
-        tk.Button(zone_box, text="Preview", command=self.open_preview_window).grid(
-            row=5, column=0, columnspan=2, sticky="we", pady=(2, 0)
-        )
+        zone_configs = [
+            ("Watch Zone 1", self.zone1_enabled, self.zone_x, self.zone_y, self.zone_w, self.zone_h,
+             self.select_zone_overlay, lambda: self.open_preview_window(1)),
+            ("Watch Zone 2", self.zone2_enabled, self.zone2_x, self.zone2_y, self.zone2_w, self.zone2_h,
+             self.select_zone2_overlay, lambda: self.open_preview_window(2)),
+            ("Watch Zone 3", self.zone3_enabled, self.zone3_x, self.zone3_y, self.zone3_w, self.zone3_h,
+             self.select_zone3_overlay, lambda: self.open_preview_window(3)),
+        ]
 
-        zone2_box = tk.LabelFrame(zones_frame, text="Watch Zone 2", padx=6, pady=4)
-        zone2_box.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
-        tk.Checkbutton(zone2_box, text="Enable Zone 2", variable=self.zone2_enabled).grid(
-            row=0, column=0, columnspan=2, sticky="w"
-        )
-        self._row(zone2_box, "X", self.zone2_x, 1)
-        self._row(zone2_box, "Y", self.zone2_y, 2)
-        self._row(zone2_box, "Width", self.zone2_w, 3)
-        self._row(zone2_box, "Height", self.zone2_h, 4)
-        tk.Button(zone2_box, text="Select Zone", command=self.select_zone2_overlay).grid(
-            row=5, column=0, columnspan=2, sticky="we", pady=(6, 2)
-        )
-        tk.Button(zone2_box, text="Preview", command=lambda: self.open_preview_window(zone_num=2)).grid(
-            row=6, column=0, columnspan=2, sticky="we", pady=(2, 0)
-        )
+        for col, (title, enabled_var, xv, yv, wv, hv, sel_cmd, prev_cmd) in enumerate(zone_configs):
+            box = tk.LabelFrame(zones_frame, text=title, padx=6, pady=4)
+            box.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 4, 0 if col == 2 else 0))
+            tk.Checkbutton(box, text="Enabled", variable=enabled_var).grid(
+                row=0, column=0, columnspan=2, sticky="w"
+            )
+            self._row(box, "X", xv, 1)
+            self._row(box, "Y", yv, 2)
+            self._row(box, "Width", wv, 3)
+            self._row(box, "Height", hv, 4)
+            tk.Button(box, text="Select Zone", command=sel_cmd).grid(
+                row=5, column=0, columnspan=2, sticky="we", pady=(6, 2)
+            )
+            tk.Button(box, text="Preview", command=prev_cmd).grid(
+                row=6, column=0, columnspan=2, sticky="we", pady=(2, 0)
+            )
 
-        # --- Colors (1 row per color) ---
+        # --- Target Colors ---
         color_box = tk.LabelFrame(frame, text="Target Colors (up to 3)", padx=6, pady=4)
         color_box.pack(fill="x", pady=(0, 6))
-
-        tk.Label(color_box, text="#").grid(row=0, column=0, sticky="w")
-        tk.Label(color_box, text="Hex").grid(row=0, column=1, sticky="w")
-        tk.Label(color_box, text="R").grid(row=0, column=2, sticky="w")
-        tk.Label(color_box, text="G").grid(row=0, column=3, sticky="w")
-        tk.Label(color_box, text="B").grid(row=0, column=4, sticky="w")
+        color_box.columnconfigure(1, weight=1)
 
         for i in range(3):
             r = i + 1
-            tk.Label(color_box, text=f"{r}").grid(row=r, column=0, sticky="w", padx=(0, 4))
-            tk.Entry(color_box, textvariable=self.color_hex_vars[i], width=10).grid(row=r, column=1, sticky="we", padx=2)
-            tk.Entry(color_box, textvariable=self.color_r_vars[i], width=4).grid(row=r, column=2, sticky="we", padx=2)
-            tk.Entry(color_box, textvariable=self.color_g_vars[i], width=4).grid(row=r, column=3, sticky="we", padx=2)
-            tk.Entry(color_box, textvariable=self.color_b_vars[i], width=4).grid(row=r, column=4, sticky="we", padx=2)
-            tk.Button(color_box, text="H>RGB", command=lambda idx=i: self.apply_hex_to_rgb(idx), width=5).grid(row=r, column=5, padx=2)
-            tk.Button(color_box, text="RGB>H", command=lambda idx=i: self.apply_rgb_to_hex(idx), width=5).grid(row=r, column=6, padx=2)
-            tk.Button(color_box, text="Pick", command=lambda idx=i: self.pick_color_from_screen(idx), width=4).grid(row=r, column=7, padx=(2, 0))
+            tk.Label(color_box, text=f"Color {r}").grid(row=i, column=0, sticky="w", padx=(0, 8), pady=2)
+            tk.Entry(color_box, textvariable=self.color_hex_vars[i]).grid(row=i, column=1, sticky="we", padx=2, pady=2)
+            tk.Button(color_box, text="Pick", command=lambda idx=i: self.pick_color_from_screen(idx), width=5).grid(
+                row=i, column=2, padx=(4, 0), pady=2
+            )
 
-        for col in range(1, 8):
-            color_box.grid_columnconfigure(col, weight=1)
-
-        # --- Detection & Tone ---
-        settings_box = tk.LabelFrame(frame, text="Detection & Tone", padx=6, pady=4)
+        # --- Detection ---
+        settings_box = tk.LabelFrame(frame, text="Detection", padx=6, pady=4)
         settings_box.pack(fill="x", pady=(0, 6))
 
         self._row(settings_box, "Tolerance (0-255)", self.tolerance, 0)
         self._row(settings_box, "Scan interval ms", self.interval_ms, 1)
-        self._row(settings_box, "Beep freq Hz", self.beep_freq, 2)
-        self._row(settings_box, "Beep duration ms", self.beep_dur, 3)
-        self._row(settings_box, "Cooldown ms", self.cooldown_ms, 4)
-        self._row(settings_box, "Silence ms", self.silence_ms, 5)
+        self._row(settings_box, "Cooldown ms", self.cooldown_ms, 2)
+        self._row(settings_box, "Silence ms", self.silence_ms, 3)
 
+        # --- Controls ---
         controls = tk.Frame(frame)
-        controls.pack(fill="x")
+        controls.pack(fill="x", pady=(0, 4))
         tk.Button(controls, text="Start", command=self.start).pack(side="left", fill="x", expand=True, padx=(0, 4))
-        tk.Button(controls, text="Stop", command=self.stop).pack(side="left", fill="x", expand=True, padx=(4, 0))
-
-        mute_controls = tk.Frame(frame)
-        mute_controls.pack(fill="x", pady=(4, 0))
-        tk.Button(mute_controls, text="Silence Now", command=self.silence_for_period).pack(
-            side="left", fill="x", expand=True, padx=(0, 4)
-        )
-        tk.Button(mute_controls, text="Test Tone", command=self.test_tone).pack(
-            side="left", fill="x", expand=True, padx=(4, 0)
+        tk.Button(controls, text="Stop", command=self.stop).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(controls, text="Silence Now", command=self.silence_for_period).pack(
+            side="left", fill="x", expand=True, padx=(0, 0)
         )
 
         profile_controls = tk.Frame(frame)
-        profile_controls.pack(fill="x", pady=(4, 0))
+        profile_controls.pack(fill="x", pady=(0, 0))
         tk.Button(profile_controls, text="Save Profile", command=self.save_profile).pack(
             side="left", fill="x", expand=True, padx=(0, 4)
         )
         tk.Button(profile_controls, text="Load Profile", command=self.load_profile).pack(
-            side="left", fill="x", expand=True, padx=(4, 0)
+            side="left", fill="x", expand=True, padx=(0, 0)
         )
 
         tk.Label(frame, textvariable=self.status_text, anchor="w").pack(fill="x", pady=(6, 0))
@@ -275,60 +245,16 @@ class App:
         tk.Entry(parent, textvariable=var).grid(row=row, column=1, sticky="we", pady=2)
         parent.grid_columnconfigure(1, weight=1)
 
-    def apply_hex_to_rgb(self, idx: int = 0):
-        try:
-            hex_value = self.color_hex_vars[idx].get().strip()
-            if not hex_value:
-                messagebox.showerror("Invalid hex", "Hex value cannot be empty")
-                return
-            r, g, b = hex_to_rgb(hex_value)
-        except ValueError as exc:
-            messagebox.showerror("Invalid hex", str(exc))
-            return
-        self.color_r_vars[idx].set(str(r))
-        self.color_g_vars[idx].set(str(g))
-        self.color_b_vars[idx].set(str(b))
-
-    def apply_rgb_to_hex(self, idx: int = 0):
-        try:
-            r = int(self.color_r_vars[idx].get())
-            g = int(self.color_g_vars[idx].get())
-            b = int(self.color_b_vars[idx].get())
-        except ValueError:
-            messagebox.showerror("Invalid RGB", "R, G, B must be numbers")
-            return
-        for value in (r, g, b):
-            if not 0 <= value <= 255:
-                messagebox.showerror("Invalid RGB", "R, G, B must be in 0..255")
-                return
-        self.color_hex_vars[idx].set(f"#{r:02X}{g:02X}{b:02X}")
-
     def _parse_color_slot(self, idx: int) -> tuple[int, int, int] | None:
         hex_value = self.color_hex_vars[idx].get().strip()
-        r_str = self.color_r_vars[idx].get().strip()
-        g_str = self.color_g_vars[idx].get().strip()
-        b_str = self.color_b_vars[idx].get().strip()
-
-        if hex_value:
-            return hex_to_rgb(hex_value)
-
-        if not (r_str or g_str or b_str):
+        if not hex_value:
             return None
-
-        if not (r_str and g_str and b_str):
-            raise ValueError(f"Color {idx + 1}: provide all R/G/B values or leave blank")
-
-        r = int(r_str)
-        g = int(g_str)
-        b = int(b_str)
-        for val in (r, g, b):
-            if not 0 <= val <= 255:
-                raise ValueError(f"Color {idx + 1}: R, G, B must be in 0..255")
-        return (r, g, b)
+        return hex_to_rgb(hex_value)
 
     def _get_profile_dict(self) -> dict:
         return {
             "zone": {
+                "enabled": self.zone1_enabled.get(),
                 "x": self.zone_x.get(),
                 "y": self.zone_y.get(),
                 "width": self.zone_w.get(),
@@ -341,26 +267,21 @@ class App:
                 "width": self.zone2_w.get(),
                 "height": self.zone2_h.get(),
             },
+            "zone3": {
+                "enabled": self.zone3_enabled.get(),
+                "x": self.zone3_x.get(),
+                "y": self.zone3_y.get(),
+                "width": self.zone3_w.get(),
+                "height": self.zone3_h.get(),
+            },
             "color": {
-                "colors": [
-                    {
-                        "hex": self.color_hex_vars[i].get(),
-                        "r": self.color_r_vars[i].get(),
-                        "g": self.color_g_vars[i].get(),
-                        "b": self.color_b_vars[i].get(),
-                    }
-                    for i in range(3)
-                ]
+                "colors": [{"hex": self.color_hex_vars[i].get()} for i in range(3)]
             },
             "detection": {
                 "tolerance": self.tolerance.get(),
                 "interval_ms": self.interval_ms.get(),
                 "cooldown_ms": self.cooldown_ms.get(),
                 "silence_ms": self.silence_ms.get(),
-            },
-            "tone": {
-                "beep_freq": self.beep_freq.get(),
-                "beep_dur": self.beep_dur.get(),
             },
         }
 
@@ -372,9 +293,6 @@ class App:
             _ = int(self.interval_ms.get())
             _ = int(self.cooldown_ms.get())
             _ = int(self.silence_ms.get())
-            _ = int(self.beep_freq.get())
-            _ = int(self.beep_dur.get())
-
             profile = self._get_profile_dict()
             self.config_path.parent.mkdir(parents=True, exist_ok=True)
             self.config_path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
@@ -393,6 +311,7 @@ class App:
             data = json.loads(self.config_path.read_text(encoding="utf-8"))
 
             zone = data.get("zone", {})
+            self.zone1_enabled.set(bool(zone.get("enabled", self.zone1_enabled.get())))
             self.zone_x.set(str(zone.get("x", self.zone_x.get())))
             self.zone_y.set(str(zone.get("y", self.zone_y.get())))
             self.zone_w.set(str(zone.get("width", self.zone_w.get())))
@@ -405,24 +324,25 @@ class App:
             self.zone2_w.set(str(zone2.get("width", self.zone2_w.get())))
             self.zone2_h.set(str(zone2.get("height", self.zone2_h.get())))
 
+            zone3 = data.get("zone3", {})
+            self.zone3_enabled.set(bool(zone3.get("enabled", self.zone3_enabled.get())))
+            self.zone3_x.set(str(zone3.get("x", self.zone3_x.get())))
+            self.zone3_y.set(str(zone3.get("y", self.zone3_y.get())))
+            self.zone3_w.set(str(zone3.get("width", self.zone3_w.get())))
+            self.zone3_h.set(str(zone3.get("height", self.zone3_h.get())))
+
             color = data.get("color", {})
             colors = color.get("colors")
             if isinstance(colors, list):
                 for i in range(3):
                     item = colors[i] if i < len(colors) and isinstance(colors[i], dict) else {}
                     self.color_hex_vars[i].set(str(item.get("hex", self.color_hex_vars[i].get())))
-                    self.color_r_vars[i].set(str(item.get("r", self.color_r_vars[i].get())))
-                    self.color_g_vars[i].set(str(item.get("g", self.color_g_vars[i].get())))
-                    self.color_b_vars[i].set(str(item.get("b", self.color_b_vars[i].get())))
+
             detection = data.get("detection", {})
             self.tolerance.set(str(detection.get("tolerance", self.tolerance.get())))
             self.interval_ms.set(str(detection.get("interval_ms", self.interval_ms.get())))
             self.cooldown_ms.set(str(detection.get("cooldown_ms", self.cooldown_ms.get())))
             self.silence_ms.set(str(detection.get("silence_ms", self.silence_ms.get())))
-
-            tone = data.get("tone", {})
-            self.beep_freq.set(str(tone.get("beep_freq", self.beep_freq.get())))
-            self.beep_dur.set(str(tone.get("beep_dur", self.beep_dur.get())))
 
             if show_message:
                 messagebox.showinfo("Profile loaded", f"Loaded from {self.config_path.name}")
@@ -587,9 +507,6 @@ class App:
             try:
                 r, g, b = screenshot.getpixel((x, y))
                 self.color_hex_vars[idx].set(f"#{r:02X}{g:02X}{b:02X}")
-                self.color_r_vars[idx].set(str(r))
-                self.color_g_vars[idx].set(str(g))
-                self.color_b_vars[idx].set(str(b))
             except Exception as exc:
                 messagebox.showerror("Pick failed", str(exc))
 
@@ -609,12 +526,76 @@ class App:
             raise ValueError("Zone 2 width and height must be > 0")
         return WatchZone(x=x, y=y, width=w, height=h)
 
+    def _parse_zone3(self) -> WatchZone:
+        x = int(self.zone3_x.get())
+        y = int(self.zone3_y.get())
+        w = int(self.zone3_w.get())
+        h = int(self.zone3_h.get())
+        if w <= 0 or h <= 0:
+            raise ValueError("Zone 3 width and height must be > 0")
+        return WatchZone(x=x, y=y, width=w, height=h)
+
+    def select_zone3_overlay(self):
+        self.root.withdraw()
+        overlay = tk.Toplevel()
+        overlay.attributes("-fullscreen", True)
+        overlay.attributes("-alpha", 0.25)
+        overlay.configure(bg="black")
+        overlay.lift()
+        overlay.attributes("-topmost", True)
+
+        canvas = tk.Canvas(overlay, cursor="cross", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+
+        start = {"x": 0, "y": 0}
+        rect_id = {"value": None}
+
+        def on_press(event):
+            start["x"] = event.x
+            start["y"] = event.y
+            if rect_id["value"] is not None:
+                canvas.delete(rect_id["value"])
+            rect_id["value"] = canvas.create_rectangle(
+                event.x, event.y, event.x, event.y, outline="yellow", width=2,
+            )
+
+        def on_drag(event):
+            if rect_id["value"] is not None:
+                canvas.coords(rect_id["value"], start["x"], start["y"], event.x, event.y)
+
+        def on_release(event):
+            x1, y1 = start["x"], start["y"]
+            x2, y2 = event.x, event.y
+            left, top = min(x1, x2), min(y1, y2)
+            width, height = abs(x2 - x1), abs(y2 - y1)
+            if width < 3 or height < 3:
+                overlay.destroy()
+                self.root.deiconify()
+                return
+            self.zone3_x.set(str(left))
+            self.zone3_y.set(str(top))
+            self.zone3_w.set(str(width))
+            self.zone3_h.set(str(height))
+            overlay.destroy()
+            self.root.deiconify()
+
+        def on_escape(_event):
+            overlay.destroy()
+            self.root.deiconify()
+
+        canvas.bind("<ButtonPress-1>", on_press)
+        canvas.bind("<B1-Motion>", on_drag)
+        canvas.bind("<ButtonRelease-1>", on_release)
+        overlay.bind("<Escape>", on_escape)
+
     def _match_zone(self, zone: WatchZone, targets: list, tolerance: int, sct) -> tuple[int, int]:
         if self.capture_backend == "dxcam" and self.dx_camera is not None:
             right = zone.x + zone.width
             bottom = zone.y + zone.height
             frame = self.dx_camera.grab(region=(zone.x, zone.y, right, bottom))
             return rgb_frame_best_match(frame, targets, tolerance)
+        if sct is None:
+            return 0, -1
         monitor = {"left": zone.x, "top": zone.y, "width": zone.width, "height": zone.height}
         shot = sct.grab(monitor)
         return bgra_buffer_best_match(shot.raw, targets, tolerance)
@@ -628,8 +609,7 @@ class App:
             _ = self.parse_targets()
             tolerance = int(self.tolerance.get())
             interval = int(self.interval_ms.get())
-            freq = int(self.beep_freq.get())
-            dur = int(self.beep_dur.get())
+
             cooldown = int(self.cooldown_ms.get())
             silence = int(self.silence_ms.get())
         except ValueError as exc:
@@ -639,14 +619,11 @@ class App:
         if not 0 <= tolerance <= 255:
             messagebox.showerror("Invalid settings", "Tolerance must be in 0..255")
             return
-        if interval <= 0 or dur <= 0 or cooldown < 0:
-            messagebox.showerror("Invalid settings", "Interval/duration must be > 0 and cooldown >= 0")
+        if interval <= 0 or cooldown < 0:
+            messagebox.showerror("Invalid settings", "Interval must be > 0 and cooldown >= 0")
             return
         if silence <= 0:
             messagebox.showerror("Invalid settings", "Silence ms must be > 0")
-            return
-        if not 37 <= freq <= 32767:
-            messagebox.showerror("Invalid settings", "Beep frequency must be in 37..32767 Hz")
             return
 
         self._init_capture_backend()
@@ -655,6 +632,9 @@ class App:
                 "Missing dependency",
                 "No screen capture backend is available. Install 'mss' or install dxcam with numpy.",
             )
+            return
+        if not (self.zone1_enabled.get() or self.zone2_enabled.get() or self.zone3_enabled.get()):
+            messagebox.showerror("No zones", "Enable at least one Watch Zone before starting.")
             return
         self.mute_until_ms = 0.0
         self.save_profile(show_message=False)
@@ -682,30 +662,9 @@ class App:
         self.running = False
         self.status_text.set("Status: Stopped")
 
-    def test_tone(self):
+    def _play_tone(self) -> str:
         try:
-            freq = int(self.beep_freq.get())
-            dur = int(self.beep_dur.get())
-        except ValueError:
-            messagebox.showerror("Invalid settings", "Beep frequency/duration must be numbers")
-            return
-
-        if not 37 <= freq <= 32767:
-            messagebox.showerror("Invalid settings", "Beep frequency must be in 37..32767 Hz")
-            return
-        if dur <= 0:
-            messagebox.showerror("Invalid settings", "Beep duration must be > 0")
-            return
-
-        tone_mode = self._play_tone(freq, dur)
-        if tone_mode == "beep":
-            self.status_text.set("Status: Test tone played.")
-        else:
-            self.status_text.set("Status: Test system alert played.")
-
-    def _play_tone(self, freq: int, dur: int) -> str:
-        try:
-            winsound.Beep(freq, dur)
+            winsound.Beep(1200, 180)
             return "beep"
         except RuntimeError:
             winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
@@ -755,7 +714,12 @@ class App:
     def open_preview_window(self, zone_num: int = 1):
         self._preview_zone_num = zone_num
         try:
-            _ = self.parse_zone() if zone_num == 1 else self._parse_zone2()
+            if zone_num == 1:
+                _ = self.parse_zone()
+            elif zone_num == 2:
+                _ = self._parse_zone2()
+            else:
+                _ = self._parse_zone3()
         except ValueError as exc:
             messagebox.showerror("Invalid zone", str(exc))
             return
@@ -785,7 +749,12 @@ class App:
             return
 
         try:
-            zone = self.parse_zone() if self._preview_zone_num == 1 else self._parse_zone2()
+            if self._preview_zone_num == 1:
+                zone = self.parse_zone()
+            elif self._preview_zone_num == 2:
+                zone = self._parse_zone2()
+            else:
+                zone = self._parse_zone3()
             image = self._capture_zone_image(zone)
             image.thumbnail((1000, 700), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(image)
@@ -814,45 +783,50 @@ class App:
 
     def monitor_loop(self):
         last_beep_ts = 0.0
-        sct = None
-
-        if self.capture_backend == "mss" and mss is not None:
-            sct = mss.mss()
+        sct = mss.mss() if mss is not None else None
 
         try:
-            zone = self.parse_zone()
-            zone2 = None
+            active_zones: list[tuple[WatchZone, int]] = []
+            if self.zone1_enabled.get():
+                try:
+                    active_zones.append((self.parse_zone(), 1))
+                except ValueError:
+                    pass
             if self.zone2_enabled.get():
                 try:
-                    zone2 = self._parse_zone2()
+                    active_zones.append((self._parse_zone2(), 2))
                 except ValueError:
-                    zone2 = None
+                    pass
+            if self.zone3_enabled.get():
+                try:
+                    active_zones.append((self._parse_zone3(), 3))
+                except ValueError:
+                    pass
+            if not active_zones:
+                raise ValueError("No zones enabled — enable at least one Watch Zone before starting.")
             targets = self.parse_targets()
             tolerance = int(self.tolerance.get())
             interval_ms = int(self.interval_ms.get())
-            freq = int(self.beep_freq.get())
-            dur = int(self.beep_dur.get())
             cooldown_ms = int(self.cooldown_ms.get())
             silence_ms = int(self.silence_ms.get())
+            multi_zone = len(active_zones) > 1
 
             while self.running:
-                match_count, match_idx = self._match_zone(zone, targets, tolerance, sct)
-                matched_zone = 1
-                if zone2 is not None:
-                    c2, i2 = self._match_zone(zone2, targets, tolerance, sct)
-                    if c2 > match_count:
-                        match_count, match_idx = c2, i2
-                        matched_zone = 2
+                match_count, match_idx, matched_zone = 0, -1, 1
+                for zone, znum in active_zones:
+                    c, idx = self._match_zone(zone, targets, tolerance, sct)
+                    if c > match_count:
+                        match_count, match_idx, matched_zone = c, idx, znum
 
                 found = match_count > 0
                 now = time.time() * 1000
                 muted = now < self.mute_until_ms
                 muted_seconds_left = max(0, int((self.mute_until_ms - now + 999) // 1000))
                 color_i = match_idx + 1
-                zone_label = f"Z{matched_zone} " if zone2 is not None else ""
+                zone_label = f"Z{matched_zone} " if multi_zone else ""
 
                 if found and not muted and now - last_beep_ts >= cooldown_ms:
-                    tone_mode = self._play_tone(freq, dur)
+                    tone_mode = self._play_tone()
                     last_beep_ts = now
                     suffix = "Tone played." if tone_mode == "beep" else "System alert played."
                     self._set_status(f"Status: {zone_label}Color {color_i} found ({match_count} px). {suffix}")
