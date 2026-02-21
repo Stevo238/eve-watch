@@ -150,6 +150,7 @@ class App:
         self.status_text = tk.StringVar(value="Status: Idle")
         self.zone_indicator_canvases: list = [None, None, None]
         self.color_swatch_labels: list = [None, None, None]
+        self._indicator_idle_color: str = "#1a1a2e"  # updated from main thread only
 
         self._build_ui()
         self.load_profile(show_message=False)
@@ -314,17 +315,22 @@ class App:
             self._update_color_swatch(i)
 
     def _set_zone_indicator(self, zone_idx: int, state: str):
-        """state: 'idle' | 'scanning' | 'match'"""
+        """state: 'idle' | 'scanning' | 'match' — safe to call from any thread."""
         ind = self.zone_indicator_canvases[zone_idx]
         if ind is None:
             return
-        idle_color = "#1a1a2e" if self.dark_mode.get() else "#cccccc"
+        # Use pre-cached idle color — never read tk vars from the monitor thread
+        idle_color = self._indicator_idle_color
         colors = {
             "idle":     idle_color,
             "scanning": "#005f2e",
             "match":    "#cc2200",
         }
-        self.root.after(0, lambda: ind.itemconfigure(ind._dot, fill=colors.get(state, idle_color)))
+        fill = colors.get(state, idle_color)
+        try:
+            self.root.after(0, lambda: ind.itemconfigure(ind._dot, fill=fill))
+        except Exception:
+            pass
 
     def _reset_zone_indicators(self):
         for i in range(3):
@@ -459,6 +465,7 @@ class App:
             apply(child, s["root_bg"])
 
         # Refresh swatches and indicator canvas backgrounds after theme change
+        self._indicator_idle_color = "#1a1a2e" if dark else "#cccccc"
         self._update_all_swatches()
         ind_bg = s["lframe_bg"]
         for ind in self.zone_indicator_canvases:
@@ -852,8 +859,11 @@ class App:
         try:
             winsound.Beep(1200, 180)
             return "beep"
-        except RuntimeError:
-            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+        except Exception:
+            try:
+                winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+            except Exception:
+                pass
             return "message"
 
     def on_close(self):
@@ -1038,7 +1048,7 @@ class App:
         except Exception as exc:
             self.running = False
             self._reset_zone_indicators()
-            self._set_status(f"Status: Error - {exc}")
+            self._set_status(f"Status: Error ({type(exc).__name__}) - {exc}")
         finally:
             if sct is not None:
                 sct.close()
