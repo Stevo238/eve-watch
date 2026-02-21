@@ -403,7 +403,10 @@ class App:
         # Dark title bar via Windows DWM API
         try:
             DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-            hwnd = self.root.winfo_id()
+            # winfo_id() is the child Tk window; GetParent() gives the real frame HWND
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            if not hwnd:
+                hwnd = self.root.winfo_id()
             val = ctypes.c_int(1 if dark else 0)
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
