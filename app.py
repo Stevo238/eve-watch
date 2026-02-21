@@ -148,6 +148,8 @@ class App:
         self.dark_mode = tk.BooleanVar(value=True)
 
         self.status_text = tk.StringVar(value="Status: Idle")
+        self.zone_indicator_canvases: list = [None, None, None]
+        self.color_swatch_labels: list = [None, None, None]
 
         self._build_ui()
         self.load_profile(show_message=False)
@@ -204,9 +206,15 @@ class App:
             box.grid(row=0, column=col, sticky="nsew", padx=(0, 0 if col == 2 else 4))
             box.columnconfigure(1, weight=1)
             box.columnconfigure(3, weight=1)
-            tk.Checkbutton(box, text="Enabled", variable=enabled_var).grid(
-                row=0, column=0, columnspan=4, sticky="w"
-            )
+            # Enabled checkbox + activity indicator dot
+            cb_row = tk.Frame(box)
+            cb_row.grid(row=0, column=0, columnspan=4, sticky="w")
+            tk.Checkbutton(cb_row, text="Enabled", variable=enabled_var).pack(side="left")
+            ind = tk.Canvas(cb_row, width=12, height=12, highlightthickness=0)
+            ind.pack(side="left", padx=(4, 0))
+            dot = ind.create_oval(2, 2, 10, 10, fill="#1a1a2e", outline="")
+            ind._dot = dot
+            self.zone_indicator_canvases[col] = ind
             # X and Y on same row
             tk.Label(box, text="X").grid(row=1, column=0, sticky="w", padx=(0, 2))
             tk.Entry(box, textvariable=xv, width=6).grid(row=1, column=1, sticky="we", padx=(0, 4))
@@ -233,9 +241,17 @@ class App:
             r = i + 1
             tk.Label(color_box, text=f"Color {r}").grid(row=i, column=0, sticky="w", padx=(0, 8), pady=1)
             tk.Entry(color_box, textvariable=self.color_hex_vars[i]).grid(row=i, column=1, sticky="we", padx=2, pady=1)
+            # Color swatch
+            swatch = tk.Label(color_box, width=2, relief="flat")
+            swatch.grid(row=i, column=2, padx=(4, 2), pady=1)
+            self.color_swatch_labels[i] = swatch
             tk.Button(color_box, text="Pick", command=lambda idx=i: self.pick_color_from_screen(idx), width=5).grid(
-                row=i, column=2, padx=(4, 0), pady=1
+                row=i, column=3, padx=(0, 0), pady=1
             )
+        # Update swatches whenever hex changes
+        for i in range(3):
+            self.color_hex_vars[i].trace_add("write", lambda *_, idx=i: self._update_color_swatch(idx))
+        self._update_all_swatches()
 
         # --- Detection ---
         settings_box = tk.LabelFrame(frame, text="Detection", padx=6, pady=3)
@@ -277,6 +293,42 @@ class App:
         )
 
         tk.Label(frame, textvariable=self.status_text, anchor="w").pack(fill="x", pady=(3, 0))
+
+    def _update_color_swatch(self, idx: int):
+        swatch = self.color_swatch_labels[idx]
+        if swatch is None:
+            return
+        hex_val = self.color_hex_vars[idx].get().strip()
+        empty_bg = "#14192b" if self.dark_mode.get() else "#d8d8d8"
+        try:
+            if re.fullmatch(r"#?[0-9a-fA-F]{6}", hex_val):
+                c = hex_val if hex_val.startswith("#") else f"#{hex_val}"
+                swatch.configure(bg=c)
+            else:
+                swatch.configure(bg=empty_bg)
+        except tk.TclError:
+            swatch.configure(bg=empty_bg)
+
+    def _update_all_swatches(self):
+        for i in range(3):
+            self._update_color_swatch(i)
+
+    def _set_zone_indicator(self, zone_idx: int, state: str):
+        """state: 'idle' | 'scanning' | 'match'"""
+        ind = self.zone_indicator_canvases[zone_idx]
+        if ind is None:
+            return
+        idle_color = "#1a1a2e" if self.dark_mode.get() else "#cccccc"
+        colors = {
+            "idle":     idle_color,
+            "scanning": "#005f2e",
+            "match":    "#cc2200",
+        }
+        self.root.after(0, lambda: ind.itemconfigure(ind._dot, fill=colors.get(state, idle_color)))
+
+    def _reset_zone_indicators(self):
+        for i in range(3):
+            self._set_zone_indicator(i, "idle")
 
     def _row(self, parent: tk.Widget, label: str, var: tk.StringVar, row: int):
         tk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=2)
@@ -362,6 +414,9 @@ class App:
         self.root.configure(bg=s["root_bg"])
 
         def apply(w, pbg):
+            # Never override swatch labels or zone indicator canvases
+            if w in self.color_swatch_labels or w in self.zone_indicator_canvases:
+                return
             cls = w.__class__.__name__
             my_bg = pbg
             try:
@@ -371,6 +426,8 @@ class App:
                 elif cls == "Frame":
                     my_bg = pbg
                     w.configure(bg=my_bg)
+                elif cls == "Canvas":
+                    w.configure(bg=pbg)
                 elif cls == "Label":
                     w.configure(bg=pbg, fg=s["label_fg"])
                 elif cls == "Entry":
@@ -400,6 +457,16 @@ class App:
 
         for child in self.root.winfo_children():
             apply(child, s["root_bg"])
+
+        # Refresh swatches and indicator canvas backgrounds after theme change
+        self._update_all_swatches()
+        ind_bg = s["lframe_bg"]
+        for ind in self.zone_indicator_canvases:
+            if ind is not None:
+                try:
+                    ind.configure(bg=ind_bg)
+                except tk.TclError:
+                    pass
 
         # Dark title bar via Windows DWM API
         try:
@@ -778,6 +845,7 @@ class App:
 
     def stop(self):
         self.running = False
+        self._reset_zone_indicators()
         self.status_text.set("Status: Stopped")
 
     def _play_tone(self) -> str:
@@ -931,10 +999,17 @@ class App:
 
             while self.running:
                 match_count, match_idx, matched_zone = 0, -1, 1
+                zone_counts: dict[int, int] = {}
                 for zone, znum in active_zones:
                     c, idx = self._match_zone(zone, targets, tolerance, sct)
+                    zone_counts[znum] = c
                     if c > match_count:
                         match_count, match_idx, matched_zone = c, idx, znum
+
+                # Update per-zone indicators
+                for zone, znum in active_zones:
+                    state = "match" if zone_counts.get(znum, 0) > 0 else "scanning"
+                    self._set_zone_indicator(znum - 1, state)
 
                 found = match_count > 0
                 now = time.time() * 1000
@@ -962,6 +1037,7 @@ class App:
 
         except Exception as exc:
             self.running = False
+            self._reset_zone_indicators()
             self._set_status(f"Status: Error - {exc}")
         finally:
             if sct is not None:
