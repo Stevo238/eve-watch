@@ -1,3 +1,4 @@
+import ctypes
 import json
 import os
 import re
@@ -398,6 +399,21 @@ class App:
 
         for child in self.root.winfo_children():
             apply(child, s["root_bg"])
+
+        # Dark title bar via Windows DWM API
+        try:
+            DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+            hwnd = self.root.winfo_id()
+            val = ctypes.c_int(1 if dark else 0)
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                ctypes.byref(val), ctypes.sizeof(val)
+            )
+            # Force a redraw so the titlebar updates immediately
+            self.root.withdraw()
+            self.root.deiconify()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Auto-restart on setting change
