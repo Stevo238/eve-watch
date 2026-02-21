@@ -141,8 +141,8 @@ class App:
 
         self.tolerance = tk.StringVar(value="15")
         self.interval_ms = tk.StringVar(value="50")
-        self.cooldown_ms = tk.StringVar(value="800")
-        self.silence_ms = tk.StringVar(value="60000")
+        self.cooldown_ms = tk.StringVar(value="2000")
+        self.silence_ms = tk.StringVar(value="60")
 
         self.status_text = tk.StringVar(value="Status: Idle")
 
@@ -218,7 +218,7 @@ class App:
         self._row(settings_box, "Tolerance (0-255)", self.tolerance, 0)
         self._row(settings_box, "Scan interval ms", self.interval_ms, 1)
         self._row(settings_box, "Cooldown ms", self.cooldown_ms, 2)
-        self._row(settings_box, "Silence ms", self.silence_ms, 3)
+        self._row(settings_box, "Silence sec", self.silence_ms, 3)
 
         # --- Controls ---
         controls = tk.Frame(frame)
@@ -281,7 +281,7 @@ class App:
                 "tolerance": self.tolerance.get(),
                 "interval_ms": self.interval_ms.get(),
                 "cooldown_ms": self.cooldown_ms.get(),
-                "silence_ms": self.silence_ms.get(),
+                "silence_sec": self.silence_ms.get(),
             },
         }
 
@@ -342,7 +342,7 @@ class App:
             self.tolerance.set(str(detection.get("tolerance", self.tolerance.get())))
             self.interval_ms.set(str(detection.get("interval_ms", self.interval_ms.get())))
             self.cooldown_ms.set(str(detection.get("cooldown_ms", self.cooldown_ms.get())))
-            self.silence_ms.set(str(detection.get("silence_ms", self.silence_ms.get())))
+            self.silence_ms.set(str(detection.get("silence_sec", self.silence_ms.get())))
 
             if show_message:
                 messagebox.showinfo("Profile loaded", f"Loaded from {self.config_path.name}")
@@ -678,12 +678,12 @@ class App:
 
     def silence_for_period(self):
         try:
-            silence_ms = int(self.silence_ms.get())
+            silence_ms = int(self.silence_ms.get()) * 1000
         except ValueError:
-            messagebox.showerror("Invalid settings", "Silence ms must be a number")
+            messagebox.showerror("Invalid settings", "Silence sec must be a number")
             return
         if silence_ms <= 0:
-            messagebox.showerror("Invalid settings", "Silence ms must be > 0")
+            messagebox.showerror("Invalid settings", "Silence sec must be > 0")
             return
 
         now = time.time() * 1000
@@ -808,7 +808,7 @@ class App:
             tolerance = int(self.tolerance.get())
             interval_ms = int(self.interval_ms.get())
             cooldown_ms = int(self.cooldown_ms.get())
-            silence_ms = int(self.silence_ms.get())
+            silence_ms = int(self.silence_ms.get()) * 1000
             multi_zone = len(active_zones) > 1
 
             while self.running:
