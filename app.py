@@ -141,7 +141,7 @@ class App:
         ]
 
         self.tolerance = tk.StringVar(value="15")
-        self.interval_ms = tk.StringVar(value="120")
+        self.interval_ms = tk.StringVar(value="50")
         self.beep_freq = tk.StringVar(value="1200")
         self.beep_dur = tk.StringVar(value="180")
         self.cooldown_ms = tk.StringVar(value="800")
@@ -712,7 +712,9 @@ class App:
                 else:
                     self._set_status(f"Status: Monitoring ({self.capture_backend})...")
 
-                sleep_ms = min(interval_ms, silence_ms) if muted else interval_ms
+                elapsed_ms = (time.time() * 1000) - now
+                target_ms = min(interval_ms, silence_ms) if muted else interval_ms
+                sleep_ms = max(0, target_ms - elapsed_ms)
                 time.sleep(sleep_ms / 1000)
 
         except Exception as exc:
