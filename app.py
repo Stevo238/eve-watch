@@ -153,6 +153,7 @@ class App:
         self.load_profile(show_message=False)
         self._set_icon()
         self._apply_theme()
+        self.root.after(100, self._apply_theme)   # re-apply once window is fully realized
         self.dark_mode.trace_add("write", lambda *_: self._apply_theme())
 
         # Auto-restart traces — attached after load_profile so initial load doesn't trigger restart
