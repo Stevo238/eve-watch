@@ -113,11 +113,18 @@ class App:
         self.preview_label: tk.Label | None = None
         self.preview_info: tk.StringVar | None = None
         self.preview_after_id: str | None = None
+        self._preview_zone_num: int = 1
 
         self.zone_x = tk.StringVar(value="0")
         self.zone_y = tk.StringVar(value="0")
         self.zone_w = tk.StringVar(value="300")
         self.zone_h = tk.StringVar(value="200")
+
+        self.zone2_x = tk.StringVar(value="0")
+        self.zone2_y = tk.StringVar(value="0")
+        self.zone2_w = tk.StringVar(value="300")
+        self.zone2_h = tk.StringVar(value="200")
+        self.zone2_enabled = tk.BooleanVar(value=False)
 
         self.color_hex_vars = [
             tk.StringVar(value="#7F3107"),
@@ -168,7 +175,7 @@ class App:
         frame = tk.Frame(self.root, padx=12, pady=12)
         frame.pack(fill="both", expand=True)
 
-        zone_box = tk.LabelFrame(frame, text="Watch Zone", padx=10, pady=8)
+        zone_box = tk.LabelFrame(frame, text="Watch Zone 1", padx=10, pady=8)
         zone_box.pack(fill="x", pady=(0, 10))
 
         self._row(zone_box, "X", self.zone_x, 0)
@@ -181,6 +188,23 @@ class App:
         )
         tk.Button(zone_box, text="Preview Capture", command=self.open_preview_window).grid(
             row=5, column=0, columnspan=2, sticky="we", pady=(6, 0)
+        )
+
+        zone2_box = tk.LabelFrame(frame, text="Watch Zone 2", padx=10, pady=8)
+        zone2_box.pack(fill="x", pady=(0, 10))
+
+        tk.Checkbutton(zone2_box, text="Enable Zone 2", variable=self.zone2_enabled).grid(
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 4)
+        )
+        self._row(zone2_box, "X", self.zone2_x, 1)
+        self._row(zone2_box, "Y", self.zone2_y, 2)
+        self._row(zone2_box, "Width", self.zone2_w, 3)
+        self._row(zone2_box, "Height", self.zone2_h, 4)
+        tk.Button(zone2_box, text="Select Zone 2 on Screen", command=self.select_zone2_overlay).grid(
+            row=5, column=0, columnspan=2, sticky="we", pady=(8, 0)
+        )
+        tk.Button(zone2_box, text="Preview Zone 2", command=lambda: self.open_preview_window(zone_num=2)).grid(
+            row=6, column=0, columnspan=2, sticky="we", pady=(6, 0)
         )
 
         color_box = tk.LabelFrame(frame, text="Target Colors (up to 3)", padx=10, pady=8)
@@ -206,8 +230,11 @@ class App:
             tk.Button(color_box, text="RGB -> Hex", command=lambda idx=i: self.apply_rgb_to_hex(idx)).grid(
                 row=row + 1, column=3, columnspan=2, sticky="we", pady=(0, 4)
             )
+            tk.Button(color_box, text="Pick", command=lambda idx=i: self.pick_color_from_screen(idx)).grid(
+                row=row, column=5, rowspan=2, sticky="nswe", padx=(6, 0), pady=2
+            )
 
-        for col in range(1, 5):
+        for col in range(1, 6):
             color_box.grid_columnconfigure(col, weight=1)
 
         settings_box = tk.LabelFrame(frame, text="Detection & Tone", padx=10, pady=8)
@@ -309,6 +336,13 @@ class App:
                 "width": self.zone_w.get(),
                 "height": self.zone_h.get(),
             },
+            "zone2": {
+                "enabled": self.zone2_enabled.get(),
+                "x": self.zone2_x.get(),
+                "y": self.zone2_y.get(),
+                "width": self.zone2_w.get(),
+                "height": self.zone2_h.get(),
+            },
             "color": {
                 "colors": [
                     {
@@ -365,6 +399,13 @@ class App:
             self.zone_y.set(str(zone.get("y", self.zone_y.get())))
             self.zone_w.set(str(zone.get("width", self.zone_w.get())))
             self.zone_h.set(str(zone.get("height", self.zone_h.get())))
+
+            zone2 = data.get("zone2", {})
+            self.zone2_enabled.set(bool(zone2.get("enabled", self.zone2_enabled.get())))
+            self.zone2_x.set(str(zone2.get("x", self.zone2_x.get())))
+            self.zone2_y.set(str(zone2.get("y", self.zone2_y.get())))
+            self.zone2_w.set(str(zone2.get("width", self.zone2_w.get())))
+            self.zone2_h.set(str(zone2.get("height", self.zone2_h.get())))
 
             color = data.get("color", {})
             colors = color.get("colors")
@@ -466,6 +507,119 @@ class App:
         canvas.bind("<B1-Motion>", on_drag)
         canvas.bind("<ButtonRelease-1>", on_release)
         overlay.bind("<Escape>", on_escape)
+
+    def select_zone2_overlay(self):
+        self.root.withdraw()
+        overlay = tk.Toplevel()
+        overlay.attributes("-fullscreen", True)
+        overlay.attributes("-alpha", 0.25)
+        overlay.configure(bg="black")
+        overlay.lift()
+        overlay.attributes("-topmost", True)
+
+        canvas = tk.Canvas(overlay, cursor="cross", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+
+        start = {"x": 0, "y": 0}
+        rect_id = {"value": None}
+
+        def on_press(event):
+            start["x"] = event.x
+            start["y"] = event.y
+            if rect_id["value"] is not None:
+                canvas.delete(rect_id["value"])
+            rect_id["value"] = canvas.create_rectangle(
+                event.x, event.y, event.x, event.y, outline="cyan", width=2,
+            )
+
+        def on_drag(event):
+            if rect_id["value"] is not None:
+                canvas.coords(rect_id["value"], start["x"], start["y"], event.x, event.y)
+
+        def on_release(event):
+            x1, y1 = start["x"], start["y"]
+            x2, y2 = event.x, event.y
+            left, top = min(x1, x2), min(y1, y2)
+            width, height = abs(x2 - x1), abs(y2 - y1)
+            if width < 3 or height < 3:
+                overlay.destroy()
+                self.root.deiconify()
+                return
+            self.zone2_x.set(str(left))
+            self.zone2_y.set(str(top))
+            self.zone2_w.set(str(width))
+            self.zone2_h.set(str(height))
+            overlay.destroy()
+            self.root.deiconify()
+
+        def on_escape(_event):
+            overlay.destroy()
+            self.root.deiconify()
+
+        canvas.bind("<ButtonPress-1>", on_press)
+        canvas.bind("<B1-Motion>", on_drag)
+        canvas.bind("<ButtonRelease-1>", on_release)
+        overlay.bind("<Escape>", on_escape)
+
+    def pick_color_from_screen(self, idx: int):
+        if mss is None:
+            messagebox.showerror("Not available", "mss is required for color picking")
+            return
+
+        with mss.mss() as sct:
+            monitor = sct.monitors[1]
+            shot = sct.grab(monitor)
+            screenshot = Image.frombytes("RGB", shot.size, shot.rgb)
+            offset_x = monitor["left"]
+            offset_y = monitor["top"]
+
+        self.root.withdraw()
+        overlay = tk.Toplevel()
+        overlay.attributes("-fullscreen", True)
+        overlay.attributes("-alpha", 0.01)
+        overlay.configure(bg="black")
+        overlay.attributes("-topmost", True)
+        overlay.config(cursor="crosshair")
+
+        def on_click(event):
+            x = event.x_root - offset_x
+            y = event.y_root - offset_y
+            overlay.destroy()
+            self.root.deiconify()
+            try:
+                r, g, b = screenshot.getpixel((x, y))
+                self.color_hex_vars[idx].set(f"#{r:02X}{g:02X}{b:02X}")
+                self.color_r_vars[idx].set(str(r))
+                self.color_g_vars[idx].set(str(g))
+                self.color_b_vars[idx].set(str(b))
+            except Exception as exc:
+                messagebox.showerror("Pick failed", str(exc))
+
+        def on_escape(_event):
+            overlay.destroy()
+            self.root.deiconify()
+
+        overlay.bind("<ButtonPress-1>", on_click)
+        overlay.bind("<Escape>", on_escape)
+
+    def _parse_zone2(self) -> WatchZone:
+        x = int(self.zone2_x.get())
+        y = int(self.zone2_y.get())
+        w = int(self.zone2_w.get())
+        h = int(self.zone2_h.get())
+        if w <= 0 or h <= 0:
+            raise ValueError("Zone 2 width and height must be > 0")
+        return WatchZone(x=x, y=y, width=w, height=h)
+
+    def _match_zone(self, zone: WatchZone, targets: list, tolerance: int, sct) -> tuple[int, int]:
+        if self.capture_backend == "dxcam" and self.dx_camera is not None:
+            right = zone.x + zone.width
+            bottom = zone.y + zone.height
+            frame = self.dx_camera.grab(region=(zone.x, zone.y, right, bottom))
+            return rgb_frame_best_match(frame, targets, tolerance)
+        monitor = {"left": zone.x, "top": zone.y, "width": zone.width, "height": zone.height}
+        shot = sct.grab(monitor)
+        return bgra_buffer_best_match(shot.raw, targets, tolerance)
 
     def start(self):
         if self.running:
@@ -600,9 +754,10 @@ class App:
             shot = sct.grab(monitor)
         return Image.frombytes("RGB", shot.size, shot.rgb)
 
-    def open_preview_window(self):
+    def open_preview_window(self, zone_num: int = 1):
+        self._preview_zone_num = zone_num
         try:
-            _ = self.parse_zone()
+            _ = self.parse_zone() if zone_num == 1 else self._parse_zone2()
         except ValueError as exc:
             messagebox.showerror("Invalid zone", str(exc))
             return
@@ -610,11 +765,12 @@ class App:
         self._init_capture_backend()
 
         if self.preview_window is not None and self.preview_window.winfo_exists():
+            self._preview_zone_num = zone_num
             self.preview_window.lift()
             return
 
         self.preview_window = tk.Toplevel(self.root)
-        self.preview_window.title("Capture Preview")
+        self.preview_window.title(f"Capture Preview (Zone {zone_num})")
         self.preview_window.geometry("520x420")
 
         self.preview_info = tk.StringVar(value=f"Backend: {self.capture_backend}")
@@ -631,7 +787,7 @@ class App:
             return
 
         try:
-            zone = self.parse_zone()
+            zone = self.parse_zone() if self._preview_zone_num == 1 else self._parse_zone2()
             image = self._capture_zone_image(zone)
             image.thumbnail((1000, 700), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(image)
@@ -667,6 +823,12 @@ class App:
 
         try:
             zone = self.parse_zone()
+            zone2 = None
+            if self.zone2_enabled.get():
+                try:
+                    zone2 = self._parse_zone2()
+                except ValueError:
+                    zone2 = None
             targets = self.parse_targets()
             tolerance = int(self.tolerance.get())
             interval_ms = int(self.interval_ms.get())
@@ -676,39 +838,30 @@ class App:
             silence_ms = int(self.silence_ms.get())
 
             while self.running:
-                match_count = 0
-                match_idx = -1
-
-                if self.capture_backend == "dxcam" and self.dx_camera is not None:
-                    right = zone.x + zone.width
-                    bottom = zone.y + zone.height
-                    frame = self.dx_camera.grab(region=(zone.x, zone.y, right, bottom))
-                    match_count, match_idx = rgb_frame_best_match(frame, targets, tolerance)
-                else:
-                    monitor = {
-                        "left": zone.x,
-                        "top": zone.y,
-                        "width": zone.width,
-                        "height": zone.height,
-                    }
-                    shot = sct.grab(monitor)
-                    match_count, match_idx = bgra_buffer_best_match(shot.raw, targets, tolerance)
+                match_count, match_idx = self._match_zone(zone, targets, tolerance, sct)
+                matched_zone = 1
+                if zone2 is not None:
+                    c2, i2 = self._match_zone(zone2, targets, tolerance, sct)
+                    if c2 > match_count:
+                        match_count, match_idx = c2, i2
+                        matched_zone = 2
 
                 found = match_count > 0
                 now = time.time() * 1000
                 muted = now < self.mute_until_ms
                 muted_seconds_left = max(0, int((self.mute_until_ms - now + 999) // 1000))
                 color_i = match_idx + 1
+                zone_label = f"Z{matched_zone} " if zone2 is not None else ""
 
                 if found and not muted and now - last_beep_ts >= cooldown_ms:
                     tone_mode = self._play_tone(freq, dur)
                     last_beep_ts = now
                     suffix = "Tone played." if tone_mode == "beep" else "System alert played."
-                    self._set_status(f"Status: Color {color_i} found ({match_count} px). {suffix}")
+                    self._set_status(f"Status: {zone_label}Color {color_i} found ({match_count} px). {suffix}")
                 elif found and muted:
-                    self._set_status(f"Status: Color {color_i} found ({match_count} px, muted {muted_seconds_left}s left).")
+                    self._set_status(f"Status: {zone_label}Color {color_i} found ({match_count} px, muted {muted_seconds_left}s left).")
                 elif found:
-                    self._set_status(f"Status: Color {color_i} found ({match_count} px), waiting cooldown...")
+                    self._set_status(f"Status: {zone_label}Color {color_i} found ({match_count} px), waiting cooldown...")
                 else:
                     self._set_status(f"Status: Monitoring ({self.capture_backend})...")
 
