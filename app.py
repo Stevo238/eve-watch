@@ -10,7 +10,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 import winsound
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 try:
     import mss
@@ -105,6 +105,7 @@ class App:
         self.config_path = self._resolve_profile_path()
 
         self.running = False
+        self._restart_pending_id: str | None = None
         self.monitor_thread: threading.Thread | None = None
         self.capture_backend = "mss"
         self.dx_camera = None
@@ -143,11 +144,26 @@ class App:
         self.interval_ms = tk.StringVar(value="50")
         self.cooldown_ms = tk.StringVar(value="2000")
         self.silence_ms = tk.StringVar(value="60")
+        self.dark_mode = tk.BooleanVar(value=True)
 
         self.status_text = tk.StringVar(value="Status: Idle")
 
         self._build_ui()
         self.load_profile(show_message=False)
+        self._set_icon()
+        self._apply_theme()
+        self.dark_mode.trace_add("write", lambda *_: self._apply_theme())
+
+        # Auto-restart traces — attached after load_profile so initial load doesn't trigger restart
+        _watched = [
+            self.zone1_enabled, self.zone_x, self.zone_y, self.zone_w, self.zone_h,
+            self.zone2_enabled, self.zone2_x, self.zone2_y, self.zone2_w, self.zone2_h,
+            self.zone3_enabled, self.zone3_x, self.zone3_y, self.zone3_w, self.zone3_h,
+            self.color_hex_vars[0], self.color_hex_vars[1], self.color_hex_vars[2],
+            self.tolerance, self.interval_ms, self.cooldown_ms, self.silence_ms,
+        ]
+        for _v in _watched:
+            _v.trace_add("write", self._on_setting_changed)
 
     def _resolve_profile_path(self) -> Path:
         appdata = os.getenv("APPDATA")
@@ -252,7 +268,10 @@ class App:
             side="left", fill="x", expand=True, padx=(0, 4)
         )
         tk.Button(profile_controls, text="Load Profile", command=self.load_profile).pack(
-            side="left", fill="x", expand=True, padx=(0, 0)
+            side="left", fill="x", expand=True, padx=(0, 4)
+        )
+        tk.Checkbutton(profile_controls, text="Dark Mode", variable=self.dark_mode).pack(
+            side="left", padx=(0, 0)
         )
 
         tk.Label(frame, textvariable=self.status_text, anchor="w").pack(fill="x", pady=(3, 0))
@@ -261,6 +280,143 @@ class App:
         tk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=2)
         tk.Entry(parent, textvariable=var).grid(row=row, column=1, sticky="we", pady=2)
         parent.grid_columnconfigure(1, weight=1)
+
+    # ------------------------------------------------------------------
+    # Icon
+    # ------------------------------------------------------------------
+    def _set_icon(self):
+        import math
+        size = 64
+        img = Image.new("RGBA", (size, size), (10, 12, 20, 255))
+        draw = ImageDraw.Draw(img)
+        cx, cy = size // 2, size // 2
+        cyan = (0, 180, 216, 255)
+        bright = (0, 230, 255, 255)
+
+        # Outer ring
+        r = 28
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=cyan, width=2)
+
+        # Inner ring
+        r2 = 9
+        draw.ellipse([cx - r2, cy - r2, cx + r2, cy + r2], outline=(0, 180, 216, 160), width=1)
+
+        # Crosshair lines with gap
+        gap = 13
+        draw.line([cx - r + 3, cy, cx - gap, cy], fill=cyan, width=1)
+        draw.line([cx + gap, cy, cx + r - 3, cy], fill=cyan, width=1)
+        draw.line([cx, cy - r + 3, cx, cy - gap], fill=cyan, width=1)
+        draw.line([cx, cy + gap, cx, cy + r - 3], fill=cyan, width=1)
+
+        # Cardinal tick marks on outer ring
+        for deg in (0, 90, 180, 270):
+            angle = math.radians(deg)
+            px = cx + int(r * math.cos(angle))
+            py = cy + int(r * math.sin(angle))
+            draw.ellipse([px - 2, py - 2, px + 2, py + 2], fill=bright)
+
+        # Centre dot
+        draw.ellipse([cx - 2, cy - 2, cx + 2, cy + 2], fill=bright)
+
+        self._icon_img = ImageTk.PhotoImage(img)
+        self.root.iconphoto(True, self._icon_img)
+
+    # ------------------------------------------------------------------
+    # Dark / light theme
+    # ------------------------------------------------------------------
+    def _apply_theme(self):
+        dark = self.dark_mode.get()
+        if dark:
+            s = {
+                "root_bg":   "#0a0d12",
+                "frame_bg":  "#0a0d12",
+                "lframe_bg": "#0f1520",
+                "lframe_fg": "#00b4d8",
+                "label_fg":  "#8cb8cc",
+                "entry_bg":  "#070a0f",
+                "entry_fg":  "#c6dde8",
+                "entry_sel": "#1e4060",
+                "btn_bg":    "#162035",
+                "btn_fg":    "#7ab8cc",
+                "btn_act":   "#1e2f4a",
+                "chk_sel":   "#09203f",
+            }
+        else:
+            s = {
+                "root_bg":   "SystemButtonFace",
+                "frame_bg":  "SystemButtonFace",
+                "lframe_bg": "SystemButtonFace",
+                "lframe_fg": "SystemButtonText",
+                "label_fg":  "SystemButtonText",
+                "entry_bg":  "SystemWindow",
+                "entry_fg":  "SystemWindowText",
+                "entry_sel": "SystemHighlight",
+                "btn_bg":    "SystemButtonFace",
+                "btn_fg":    "SystemButtonText",
+                "btn_act":   "SystemHighlight",
+                "chk_sel":   "SystemWindow",
+            }
+
+        self.root.configure(bg=s["root_bg"])
+
+        def apply(w, pbg):
+            cls = w.__class__.__name__
+            my_bg = pbg
+            try:
+                if cls == "LabelFrame":
+                    my_bg = s["lframe_bg"]
+                    w.configure(bg=my_bg, fg=s["lframe_fg"])
+                elif cls == "Frame":
+                    my_bg = pbg
+                    w.configure(bg=my_bg)
+                elif cls == "Label":
+                    w.configure(bg=pbg, fg=s["label_fg"])
+                elif cls == "Entry":
+                    w.configure(
+                        bg=s["entry_bg"], fg=s["entry_fg"],
+                        insertbackground=s["entry_fg"],
+                        selectbackground=s["entry_sel"],
+                    )
+                elif cls == "Button":
+                    w.configure(
+                        bg=s["btn_bg"], fg=s["btn_fg"],
+                        activebackground=s["btn_act"],
+                        activeforeground=s["btn_fg"],
+                        relief="flat" if dark else "raised",
+                        borderwidth=1,
+                    )
+                elif cls == "Checkbutton":
+                    w.configure(
+                        bg=pbg, fg=s["label_fg"],
+                        activebackground=pbg,
+                        selectcolor=s["chk_sel"],
+                    )
+            except tk.TclError:
+                pass
+            for child in w.winfo_children():
+                apply(child, my_bg)
+
+        for child in self.root.winfo_children():
+            apply(child, s["root_bg"])
+
+    # ------------------------------------------------------------------
+    # Auto-restart on setting change
+    # ------------------------------------------------------------------
+    def _on_setting_changed(self, *_args):
+        if not self.running:
+            return
+        if self._restart_pending_id is not None:
+            self.root.after_cancel(self._restart_pending_id)
+        self._restart_pending_id = self.root.after(700, self._do_restart)
+
+    def _do_restart(self):
+        self._restart_pending_id = None
+        if not self.running:
+            return
+        self.stop()
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join(timeout=0.5)
+        self.start(silent=True)
 
     def _parse_color_slot(self, idx: int) -> tuple[int, int, int] | None:
         hex_value = self.color_hex_vars[idx].get().strip()
@@ -617,7 +773,7 @@ class App:
         shot = sct.grab(monitor)
         return bgra_buffer_best_match(shot.raw, targets, tolerance)
 
-    def start(self):
+    def start(self, silent: bool = False):
         if self.running:
             return
 
@@ -630,28 +786,34 @@ class App:
             cooldown = int(self.cooldown_ms.get())
             silence = int(self.silence_ms.get())
         except ValueError as exc:
-            messagebox.showerror("Invalid settings", str(exc))
+            if not silent:
+                messagebox.showerror("Invalid settings", str(exc))
             return
 
         if not 0 <= tolerance <= 255:
-            messagebox.showerror("Invalid settings", "Tolerance must be in 0..255")
+            if not silent:
+                messagebox.showerror("Invalid settings", "Tolerance must be in 0..255")
             return
         if interval <= 0 or cooldown < 0:
-            messagebox.showerror("Invalid settings", "Interval must be > 0 and cooldown >= 0")
+            if not silent:
+                messagebox.showerror("Invalid settings", "Interval must be > 0 and cooldown >= 0")
             return
         if silence <= 0:
-            messagebox.showerror("Invalid settings", "Silence ms must be > 0")
+            if not silent:
+                messagebox.showerror("Invalid settings", "Silence ms must be > 0")
             return
 
         self._init_capture_backend()
         if self.capture_backend == "none":
-            messagebox.showerror(
-                "Missing dependency",
-                "No screen capture backend is available. Install 'mss' or install dxcam with numpy.",
-            )
+            if not silent:
+                messagebox.showerror(
+                    "Missing dependency",
+                    "No screen capture backend is available. Install 'mss' or install dxcam with numpy.",
+                )
             return
         if not (self.zone1_enabled.get() or self.zone2_enabled.get() or self.zone3_enabled.get()):
-            messagebox.showerror("No zones", "Enable at least one Watch Zone before starting.")
+            if not silent:
+                messagebox.showerror("No zones", "Enable at least one Watch Zone before starting.")
             return
         self.mute_until_ms = 0.0
         self.save_profile(show_message=False)
