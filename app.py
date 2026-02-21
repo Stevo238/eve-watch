@@ -151,6 +151,7 @@ class App:
         self.zone_indicator_canvases: list = [None, None, None]
         self.color_swatch_labels: list = [None, None, None]
         self._indicator_idle_color: str = "#1a1a2e"  # updated from main thread only
+        self._error_streak: int = 0  # consecutive monitor errors; resets on clean run
 
         self._build_ui()
         self.load_profile(show_message=False)
@@ -512,6 +513,14 @@ class App:
             self.monitor_thread.join(timeout=0.5)
         self.start(silent=True)
 
+    def _auto_recover(self):
+        """Called from main thread after a monitor error to attempt silent restart."""
+        if self.running:
+            return  # already restarted somehow
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join(timeout=0.5)
+        self.start(silent=True)
+
     def _parse_color_slot(self, idx: int) -> tuple[int, int, int] | None:
         hex_value = self.color_hex_vars[idx].get().strip()
         if not hex_value:
@@ -829,6 +838,8 @@ class App:
                 messagebox.showerror("No zones", "Enable at least one Watch Zone before starting.")
             return
         self.mute_until_ms = 0.0
+        if not silent:
+            self._error_streak = 0  # manual start resets retry counter
         self.save_profile(show_message=False)
 
         self.running = True
@@ -1045,10 +1056,24 @@ class App:
                 sleep_ms = max(0, target_ms - elapsed_ms)
                 time.sleep(sleep_ms / 1000)
 
+            # Loop exited cleanly (stop() called)
+            self._error_streak = 0
+
         except Exception as exc:
             self.running = False
             self._reset_zone_indicators()
-            self._set_status(f"Status: Error ({type(exc).__name__}) - {exc}")
+            self._error_streak += 1
+            if self._error_streak <= 5:
+                self._set_status(
+                    f"Status: Error ({type(exc).__name__}) — auto-restarting "
+                    f"({self._error_streak}/5)..."
+                )
+                self.root.after(1500, self._auto_recover)
+            else:
+                self._set_status(
+                    f"Status: Error ({type(exc).__name__}) — {exc} "
+                    f"(stopped after 5 retries)"
+                )
         finally:
             if sct is not None:
                 sct.close()
