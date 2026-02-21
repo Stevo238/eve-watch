@@ -99,8 +99,8 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Screen Color Tone Watcher v1")
-        self.root.geometry("560x820")
-        self.root.minsize(520, 720)
+        self.root.geometry("760x660")
+        self.root.minsize(680, 580)
         self.root.resizable(True, True)
         self.config_path = self._resolve_profile_path()
 
@@ -172,73 +172,71 @@ class App:
         return config_path
 
     def _build_ui(self):
-        frame = tk.Frame(self.root, padx=12, pady=12)
+        frame = tk.Frame(self.root, padx=8, pady=6)
         frame.pack(fill="both", expand=True)
 
-        zone_box = tk.LabelFrame(frame, text="Watch Zone 1", padx=10, pady=8)
-        zone_box.pack(fill="x", pady=(0, 10))
+        # --- Zones side by side ---
+        zones_frame = tk.Frame(frame)
+        zones_frame.pack(fill="x", pady=(0, 6))
+        zones_frame.columnconfigure(0, weight=1)
+        zones_frame.columnconfigure(1, weight=1)
 
+        zone_box = tk.LabelFrame(zones_frame, text="Watch Zone 1", padx=6, pady=4)
+        zone_box.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
         self._row(zone_box, "X", self.zone_x, 0)
         self._row(zone_box, "Y", self.zone_y, 1)
         self._row(zone_box, "Width", self.zone_w, 2)
         self._row(zone_box, "Height", self.zone_h, 3)
-
-        tk.Button(zone_box, text="Select Zone on Screen", command=self.select_zone_overlay).grid(
-            row=4, column=0, columnspan=2, sticky="we", pady=(8, 0)
+        tk.Button(zone_box, text="Select Zone", command=self.select_zone_overlay).grid(
+            row=4, column=0, columnspan=2, sticky="we", pady=(6, 2)
         )
-        tk.Button(zone_box, text="Preview Capture", command=self.open_preview_window).grid(
-            row=5, column=0, columnspan=2, sticky="we", pady=(6, 0)
+        tk.Button(zone_box, text="Preview", command=self.open_preview_window).grid(
+            row=5, column=0, columnspan=2, sticky="we", pady=(2, 0)
         )
 
-        zone2_box = tk.LabelFrame(frame, text="Watch Zone 2", padx=10, pady=8)
-        zone2_box.pack(fill="x", pady=(0, 10))
-
+        zone2_box = tk.LabelFrame(zones_frame, text="Watch Zone 2", padx=6, pady=4)
+        zone2_box.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
         tk.Checkbutton(zone2_box, text="Enable Zone 2", variable=self.zone2_enabled).grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 4)
+            row=0, column=0, columnspan=2, sticky="w"
         )
         self._row(zone2_box, "X", self.zone2_x, 1)
         self._row(zone2_box, "Y", self.zone2_y, 2)
         self._row(zone2_box, "Width", self.zone2_w, 3)
         self._row(zone2_box, "Height", self.zone2_h, 4)
-        tk.Button(zone2_box, text="Select Zone 2 on Screen", command=self.select_zone2_overlay).grid(
-            row=5, column=0, columnspan=2, sticky="we", pady=(8, 0)
+        tk.Button(zone2_box, text="Select Zone", command=self.select_zone2_overlay).grid(
+            row=5, column=0, columnspan=2, sticky="we", pady=(6, 2)
         )
-        tk.Button(zone2_box, text="Preview Zone 2", command=lambda: self.open_preview_window(zone_num=2)).grid(
-            row=6, column=0, columnspan=2, sticky="we", pady=(6, 0)
+        tk.Button(zone2_box, text="Preview", command=lambda: self.open_preview_window(zone_num=2)).grid(
+            row=6, column=0, columnspan=2, sticky="we", pady=(2, 0)
         )
 
-        color_box = tk.LabelFrame(frame, text="Target Colors (up to 3)", padx=10, pady=8)
-        color_box.pack(fill="x", pady=(0, 10))
+        # --- Colors (1 row per color) ---
+        color_box = tk.LabelFrame(frame, text="Target Colors (up to 3)", padx=6, pady=4)
+        color_box.pack(fill="x", pady=(0, 6))
 
-        tk.Label(color_box, text="Color").grid(row=0, column=0, sticky="w")
+        tk.Label(color_box, text="#").grid(row=0, column=0, sticky="w")
         tk.Label(color_box, text="Hex").grid(row=0, column=1, sticky="w")
         tk.Label(color_box, text="R").grid(row=0, column=2, sticky="w")
         tk.Label(color_box, text="G").grid(row=0, column=3, sticky="w")
         tk.Label(color_box, text="B").grid(row=0, column=4, sticky="w")
 
         for i in range(3):
-            row = i * 2 + 1
-            tk.Label(color_box, text=f"{i + 1}").grid(row=row, column=0, sticky="w", padx=(0, 8), pady=2)
-            tk.Entry(color_box, textvariable=self.color_hex_vars[i], width=12).grid(row=row, column=1, sticky="we", pady=2)
-            tk.Entry(color_box, textvariable=self.color_r_vars[i], width=5).grid(row=row, column=2, sticky="we", pady=2)
-            tk.Entry(color_box, textvariable=self.color_g_vars[i], width=5).grid(row=row, column=3, sticky="we", pady=2)
-            tk.Entry(color_box, textvariable=self.color_b_vars[i], width=5).grid(row=row, column=4, sticky="we", pady=2)
+            r = i + 1
+            tk.Label(color_box, text=f"{r}").grid(row=r, column=0, sticky="w", padx=(0, 4))
+            tk.Entry(color_box, textvariable=self.color_hex_vars[i], width=10).grid(row=r, column=1, sticky="we", padx=2)
+            tk.Entry(color_box, textvariable=self.color_r_vars[i], width=4).grid(row=r, column=2, sticky="we", padx=2)
+            tk.Entry(color_box, textvariable=self.color_g_vars[i], width=4).grid(row=r, column=3, sticky="we", padx=2)
+            tk.Entry(color_box, textvariable=self.color_b_vars[i], width=4).grid(row=r, column=4, sticky="we", padx=2)
+            tk.Button(color_box, text="H>RGB", command=lambda idx=i: self.apply_hex_to_rgb(idx), width=5).grid(row=r, column=5, padx=2)
+            tk.Button(color_box, text="RGB>H", command=lambda idx=i: self.apply_rgb_to_hex(idx), width=5).grid(row=r, column=6, padx=2)
+            tk.Button(color_box, text="Pick", command=lambda idx=i: self.pick_color_from_screen(idx), width=4).grid(row=r, column=7, padx=(2, 0))
 
-            tk.Button(color_box, text="Hex -> RGB", command=lambda idx=i: self.apply_hex_to_rgb(idx)).grid(
-                row=row + 1, column=1, columnspan=2, sticky="we", pady=(0, 4)
-            )
-            tk.Button(color_box, text="RGB -> Hex", command=lambda idx=i: self.apply_rgb_to_hex(idx)).grid(
-                row=row + 1, column=3, columnspan=2, sticky="we", pady=(0, 4)
-            )
-            tk.Button(color_box, text="Pick", command=lambda idx=i: self.pick_color_from_screen(idx)).grid(
-                row=row, column=5, rowspan=2, sticky="nswe", padx=(6, 0), pady=2
-            )
-
-        for col in range(1, 6):
+        for col in range(1, 8):
             color_box.grid_columnconfigure(col, weight=1)
 
-        settings_box = tk.LabelFrame(frame, text="Detection & Tone", padx=10, pady=8)
-        settings_box.pack(fill="x", pady=(0, 10))
+        # --- Detection & Tone ---
+        settings_box = tk.LabelFrame(frame, text="Detection & Tone", padx=6, pady=4)
+        settings_box.pack(fill="x", pady=(0, 6))
 
         self._row(settings_box, "Tolerance (0-255)", self.tolerance, 0)
         self._row(settings_box, "Scan interval ms", self.interval_ms, 1)
@@ -249,28 +247,28 @@ class App:
 
         controls = tk.Frame(frame)
         controls.pack(fill="x")
-        tk.Button(controls, text="Start", command=self.start).pack(side="left", fill="x", expand=True, padx=(0, 5))
-        tk.Button(controls, text="Stop", command=self.stop).pack(side="left", fill="x", expand=True, padx=(5, 0))
+        tk.Button(controls, text="Start", command=self.start).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        tk.Button(controls, text="Stop", command=self.stop).pack(side="left", fill="x", expand=True, padx=(4, 0))
 
         mute_controls = tk.Frame(frame)
-        mute_controls.pack(fill="x", pady=(8, 0))
+        mute_controls.pack(fill="x", pady=(4, 0))
         tk.Button(mute_controls, text="Silence Now", command=self.silence_for_period).pack(
-            side="left", fill="x", expand=True, padx=(0, 5)
+            side="left", fill="x", expand=True, padx=(0, 4)
         )
         tk.Button(mute_controls, text="Test Tone", command=self.test_tone).pack(
-            side="left", fill="x", expand=True, padx=(5, 0)
+            side="left", fill="x", expand=True, padx=(4, 0)
         )
 
         profile_controls = tk.Frame(frame)
-        profile_controls.pack(fill="x", pady=(8, 0))
+        profile_controls.pack(fill="x", pady=(4, 0))
         tk.Button(profile_controls, text="Save Profile", command=self.save_profile).pack(
-            side="left", fill="x", expand=True, padx=(0, 5)
+            side="left", fill="x", expand=True, padx=(0, 4)
         )
         tk.Button(profile_controls, text="Load Profile", command=self.load_profile).pack(
-            side="left", fill="x", expand=True, padx=(5, 0)
+            side="left", fill="x", expand=True, padx=(4, 0)
         )
 
-        tk.Label(frame, textvariable=self.status_text, anchor="w").pack(fill="x", pady=(10, 0))
+        tk.Label(frame, textvariable=self.status_text, anchor="w").pack(fill="x", pady=(6, 0))
 
     def _row(self, parent: tk.Widget, label: str, var: tk.StringVar, row: int):
         tk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=2)
