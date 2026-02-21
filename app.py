@@ -99,8 +99,8 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Screen Color Tone Watcher v1")
-        self.root.geometry("900x610")
-        self.root.minsize(780, 540)
+        self.root.geometry("660x620")
+        self.root.minsize(580, 560)
         self.root.resizable(True, True)
         self.config_path = self._resolve_profile_path()
 
@@ -182,20 +182,28 @@ class App:
         ]
 
         for col, (title, enabled_var, xv, yv, wv, hv, sel_cmd, prev_cmd) in enumerate(zone_configs):
-            box = tk.LabelFrame(zones_frame, text=title, padx=6, pady=4)
-            box.grid(row=0, column=col, sticky="nsew", padx=(0 if col == 0 else 4, 0 if col == 2 else 0))
+            box = tk.LabelFrame(zones_frame, text=title, padx=4, pady=3)
+            box.grid(row=0, column=col, sticky="nsew", padx=(0, 0 if col == 2 else 4))
+            box.columnconfigure(1, weight=1)
+            box.columnconfigure(3, weight=1)
             tk.Checkbutton(box, text="Enabled", variable=enabled_var).grid(
-                row=0, column=0, columnspan=2, sticky="w"
+                row=0, column=0, columnspan=4, sticky="w"
             )
-            self._row(box, "X", xv, 1)
-            self._row(box, "Y", yv, 2)
-            self._row(box, "Width", wv, 3)
-            self._row(box, "Height", hv, 4)
+            # X and Y on same row
+            tk.Label(box, text="X").grid(row=1, column=0, sticky="w", padx=(0, 2))
+            tk.Entry(box, textvariable=xv, width=6).grid(row=1, column=1, sticky="we", padx=(0, 4))
+            tk.Label(box, text="Y").grid(row=1, column=2, sticky="w", padx=(0, 2))
+            tk.Entry(box, textvariable=yv, width=6).grid(row=1, column=3, sticky="we")
+            # W and H on same row
+            tk.Label(box, text="W").grid(row=2, column=0, sticky="w", padx=(0, 2))
+            tk.Entry(box, textvariable=wv, width=6).grid(row=2, column=1, sticky="we", padx=(0, 4))
+            tk.Label(box, text="H").grid(row=2, column=2, sticky="w", padx=(0, 2))
+            tk.Entry(box, textvariable=hv, width=6).grid(row=2, column=3, sticky="we")
             tk.Button(box, text="Select Zone", command=sel_cmd).grid(
-                row=5, column=0, columnspan=2, sticky="we", pady=(6, 2)
+                row=3, column=0, columnspan=4, sticky="we", pady=(5, 2)
             )
             tk.Button(box, text="Preview", command=prev_cmd).grid(
-                row=6, column=0, columnspan=2, sticky="we", pady=(2, 0)
+                row=4, column=0, columnspan=4, sticky="we", pady=(0, 0)
             )
 
         # --- Target Colors ---
@@ -214,11 +222,20 @@ class App:
         # --- Detection ---
         settings_box = tk.LabelFrame(frame, text="Detection", padx=6, pady=4)
         settings_box.pack(fill="x", pady=(0, 6))
+        settings_box.columnconfigure(1, weight=1)
+        settings_box.columnconfigure(3, weight=1)
 
-        self._row(settings_box, "Tolerance (0-255)", self.tolerance, 0)
-        self._row(settings_box, "Scan interval ms", self.interval_ms, 1)
-        self._row(settings_box, "Cooldown ms", self.cooldown_ms, 2)
-        self._row(settings_box, "Silence sec", self.silence_ms, 3)
+        # Row 0: Tolerance | Scan interval
+        tk.Label(settings_box, text="Tolerance (0-255)").grid(row=0, column=0, sticky="w", padx=(0, 4), pady=2)
+        tk.Entry(settings_box, textvariable=self.tolerance, width=7).grid(row=0, column=1, sticky="we", padx=(0, 12), pady=2)
+        tk.Label(settings_box, text="Scan interval ms").grid(row=0, column=2, sticky="w", padx=(0, 4), pady=2)
+        tk.Entry(settings_box, textvariable=self.interval_ms, width=7).grid(row=0, column=3, sticky="we", pady=2)
+
+        # Row 1: Cooldown | Silence
+        tk.Label(settings_box, text="Cooldown ms").grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
+        tk.Entry(settings_box, textvariable=self.cooldown_ms, width=7).grid(row=1, column=1, sticky="we", padx=(0, 12), pady=2)
+        tk.Label(settings_box, text="Silence sec").grid(row=1, column=2, sticky="w", padx=(0, 4), pady=2)
+        tk.Entry(settings_box, textvariable=self.silence_ms, width=7).grid(row=1, column=3, sticky="we", pady=2)
 
         # --- Controls ---
         controls = tk.Frame(frame)
