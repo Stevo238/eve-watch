@@ -561,16 +561,34 @@ class App:
             raise ValueError("Enter at least one target color")
         return targets
 
-    def select_zone_overlay(self):
+    # ------------------------------------------------------------------
+    # Shared overlay helper — spans all monitors
+    # ------------------------------------------------------------------
+    def _show_zone_overlay(self, xv, yv, wv, hv, color: str):
+        """Draw a drag-to-select overlay across the full virtual desktop."""
+        # Get virtual desktop bounds from mss
+        if mss is not None:
+            with mss.mss() as _sct:
+                vd = _sct.monitors[0]  # combined bounding box
+            vd_left   = vd["left"]
+            vd_top    = vd["top"]
+            vd_width  = vd["width"]
+            vd_height = vd["height"]
+        else:
+            vd_left, vd_top = 0, 0
+            vd_width  = self.root.winfo_screenwidth()
+            vd_height = self.root.winfo_screenheight()
+
         self.root.withdraw()
         overlay = tk.Toplevel()
-        overlay.attributes("-fullscreen", True)
+        overlay.overrideredirect(True)  # no titlebar/borders
+        overlay.geometry(f"{vd_width}x{vd_height}+{vd_left}+{vd_top}")
         overlay.attributes("-alpha", 0.25)
+        overlay.attributes("-topmost", True)
         overlay.configure(bg="black")
         overlay.lift()
-        overlay.attributes("-topmost", True)
 
-        canvas = tk.Canvas(overlay, cursor="cross", highlightthickness=0)
+        canvas = tk.Canvas(overlay, cursor="cross", highlightthickness=0, bg="black")
         canvas.pack(fill="both", expand=True)
 
         start = {"x": 0, "y": 0}
@@ -582,12 +600,7 @@ class App:
             if rect_id["value"] is not None:
                 canvas.delete(rect_id["value"])
             rect_id["value"] = canvas.create_rectangle(
-                event.x,
-                event.y,
-                event.x,
-                event.y,
-                outline="red",
-                width=2,
+                event.x, event.y, event.x, event.y, outline=color, width=2
             )
 
         def on_drag(event):
@@ -597,18 +610,18 @@ class App:
         def on_release(event):
             x1, y1 = start["x"], start["y"]
             x2, y2 = event.x, event.y
-            left, top = min(x1, x2), min(y1, y2)
-            width, height = abs(x2 - x1), abs(y2 - y1)
-            if width < 3 or height < 3:
-                overlay.destroy()
-                self.root.deiconify()
-                return
-            self.zone_x.set(str(left))
-            self.zone_y.set(str(top))
-            self.zone_w.set(str(width))
-            self.zone_h.set(str(height))
+            left   = min(x1, x2) + vd_left
+            top    = min(y1, y2) + vd_top
+            width  = abs(x2 - x1)
+            height = abs(y2 - y1)
             overlay.destroy()
             self.root.deiconify()
+            if width < 3 or height < 3:
+                return
+            xv.set(str(left))
+            yv.set(str(top))
+            wv.set(str(width))
+            hv.set(str(height))
 
         def on_escape(_event):
             overlay.destroy()
@@ -618,59 +631,15 @@ class App:
         canvas.bind("<B1-Motion>", on_drag)
         canvas.bind("<ButtonRelease-1>", on_release)
         overlay.bind("<Escape>", on_escape)
+
+    def select_zone_overlay(self):
+        self._show_zone_overlay(self.zone_x, self.zone_y, self.zone_w, self.zone_h, "red")
 
     def select_zone2_overlay(self):
-        self.root.withdraw()
-        overlay = tk.Toplevel()
-        overlay.attributes("-fullscreen", True)
-        overlay.attributes("-alpha", 0.25)
-        overlay.configure(bg="black")
-        overlay.lift()
-        overlay.attributes("-topmost", True)
+        self._show_zone_overlay(self.zone2_x, self.zone2_y, self.zone2_w, self.zone2_h, "cyan")
 
-        canvas = tk.Canvas(overlay, cursor="cross", highlightthickness=0)
-        canvas.pack(fill="both", expand=True)
-
-        start = {"x": 0, "y": 0}
-        rect_id = {"value": None}
-
-        def on_press(event):
-            start["x"] = event.x
-            start["y"] = event.y
-            if rect_id["value"] is not None:
-                canvas.delete(rect_id["value"])
-            rect_id["value"] = canvas.create_rectangle(
-                event.x, event.y, event.x, event.y, outline="cyan", width=2,
-            )
-
-        def on_drag(event):
-            if rect_id["value"] is not None:
-                canvas.coords(rect_id["value"], start["x"], start["y"], event.x, event.y)
-
-        def on_release(event):
-            x1, y1 = start["x"], start["y"]
-            x2, y2 = event.x, event.y
-            left, top = min(x1, x2), min(y1, y2)
-            width, height = abs(x2 - x1), abs(y2 - y1)
-            if width < 3 or height < 3:
-                overlay.destroy()
-                self.root.deiconify()
-                return
-            self.zone2_x.set(str(left))
-            self.zone2_y.set(str(top))
-            self.zone2_w.set(str(width))
-            self.zone2_h.set(str(height))
-            overlay.destroy()
-            self.root.deiconify()
-
-        def on_escape(_event):
-            overlay.destroy()
-            self.root.deiconify()
-
-        canvas.bind("<ButtonPress-1>", on_press)
-        canvas.bind("<B1-Motion>", on_drag)
-        canvas.bind("<ButtonRelease-1>", on_release)
-        overlay.bind("<Escape>", on_escape)
+    def select_zone3_overlay(self):
+        self._show_zone_overlay(self.zone3_x, self.zone3_y, self.zone3_w, self.zone3_h, "yellow")
 
     def pick_color_from_screen(self, idx: int):
         if mss is None:
@@ -678,18 +647,21 @@ class App:
             return
 
         with mss.mss() as sct:
-            monitor = sct.monitors[1]
-            shot = sct.grab(monitor)
+            vd = sct.monitors[0]  # full virtual desktop
+            shot = sct.grab(vd)
             screenshot = Image.frombytes("RGB", shot.size, shot.rgb)
-            offset_x = monitor["left"]
-            offset_y = monitor["top"]
+            offset_x = vd["left"]
+            offset_y = vd["top"]
+            vd_width  = vd["width"]
+            vd_height = vd["height"]
 
         self.root.withdraw()
         overlay = tk.Toplevel()
-        overlay.attributes("-fullscreen", True)
+        overlay.overrideredirect(True)
+        overlay.geometry(f"{vd_width}x{vd_height}+{offset_x}+{offset_y}")
         overlay.attributes("-alpha", 0.01)
-        overlay.configure(bg="black")
         overlay.attributes("-topmost", True)
+        overlay.configure(bg="black")
         overlay.config(cursor="crosshair")
 
         def on_click(event):
@@ -727,59 +699,6 @@ class App:
         if w <= 0 or h <= 0:
             raise ValueError("Zone 3 width and height must be > 0")
         return WatchZone(x=x, y=y, width=w, height=h)
-
-    def select_zone3_overlay(self):
-        self.root.withdraw()
-        overlay = tk.Toplevel()
-        overlay.attributes("-fullscreen", True)
-        overlay.attributes("-alpha", 0.25)
-        overlay.configure(bg="black")
-        overlay.lift()
-        overlay.attributes("-topmost", True)
-
-        canvas = tk.Canvas(overlay, cursor="cross", highlightthickness=0)
-        canvas.pack(fill="both", expand=True)
-
-        start = {"x": 0, "y": 0}
-        rect_id = {"value": None}
-
-        def on_press(event):
-            start["x"] = event.x
-            start["y"] = event.y
-            if rect_id["value"] is not None:
-                canvas.delete(rect_id["value"])
-            rect_id["value"] = canvas.create_rectangle(
-                event.x, event.y, event.x, event.y, outline="yellow", width=2,
-            )
-
-        def on_drag(event):
-            if rect_id["value"] is not None:
-                canvas.coords(rect_id["value"], start["x"], start["y"], event.x, event.y)
-
-        def on_release(event):
-            x1, y1 = start["x"], start["y"]
-            x2, y2 = event.x, event.y
-            left, top = min(x1, x2), min(y1, y2)
-            width, height = abs(x2 - x1), abs(y2 - y1)
-            if width < 3 or height < 3:
-                overlay.destroy()
-                self.root.deiconify()
-                return
-            self.zone3_x.set(str(left))
-            self.zone3_y.set(str(top))
-            self.zone3_w.set(str(width))
-            self.zone3_h.set(str(height))
-            overlay.destroy()
-            self.root.deiconify()
-
-        def on_escape(_event):
-            overlay.destroy()
-            self.root.deiconify()
-
-        canvas.bind("<ButtonPress-1>", on_press)
-        canvas.bind("<B1-Motion>", on_drag)
-        canvas.bind("<ButtonRelease-1>", on_release)
-        overlay.bind("<Escape>", on_escape)
 
     def _match_zone(self, zone: WatchZone, targets: list, tolerance: int, sct) -> tuple[int, int]:
         if self.capture_backend == "dxcam" and self.dx_camera is not None:
