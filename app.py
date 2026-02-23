@@ -139,6 +139,7 @@ class App:
             tk.StringVar(value="#7F3107"),
             tk.StringVar(value=""),
             tk.StringVar(value=""),
+            tk.StringVar(value=""),
         ]
 
         self.tolerance = tk.StringVar(value="15")
@@ -149,7 +150,7 @@ class App:
 
         self.status_text = tk.StringVar(value="Status: Idle")
         self.zone_indicator_canvases: list = [None, None, None]
-        self.color_swatch_labels: list = [None, None, None]
+        self.color_swatch_labels: list = [None, None, None, None]
         self._indicator_idle_color: str = "#1a1a2e"  # updated from main thread only
         self._error_streak: int = 0  # consecutive monitor errors; resets on clean run
 
@@ -165,7 +166,7 @@ class App:
             self.zone1_enabled, self.zone_x, self.zone_y, self.zone_w, self.zone_h,
             self.zone2_enabled, self.zone2_x, self.zone2_y, self.zone2_w, self.zone2_h,
             self.zone3_enabled, self.zone3_x, self.zone3_y, self.zone3_w, self.zone3_h,
-            self.color_hex_vars[0], self.color_hex_vars[1], self.color_hex_vars[2],
+            self.color_hex_vars[0], self.color_hex_vars[1], self.color_hex_vars[2], self.color_hex_vars[3],
             self.tolerance, self.interval_ms, self.cooldown_ms, self.silence_ms,
         ]
         for _v in _watched:
@@ -235,11 +236,11 @@ class App:
             )
 
         # --- Target Colors ---
-        color_box = tk.LabelFrame(frame, text="Target Colors (up to 3)", padx=6, pady=3)
+        color_box = tk.LabelFrame(frame, text="Target Colors (up to 4)", padx=6, pady=3)
         color_box.pack(fill="x", pady=(0, 3))
         color_box.columnconfigure(1, weight=1)
 
-        for i in range(3):
+        for i in range(4):
             r = i + 1
             tk.Label(color_box, text=f"Color {r}").grid(row=i, column=0, sticky="w", padx=(0, 8), pady=1)
             tk.Entry(color_box, textvariable=self.color_hex_vars[i]).grid(row=i, column=1, sticky="we", padx=2, pady=1)
@@ -251,7 +252,7 @@ class App:
                 row=i, column=3, padx=(0, 0), pady=1
             )
         # Update swatches whenever hex changes
-        for i in range(3):
+        for i in range(4):
             self.color_hex_vars[i].trace_add("write", lambda *_, idx=i: self._update_color_swatch(idx))
         self._update_all_swatches()
 
@@ -312,7 +313,7 @@ class App:
             swatch.configure(bg=empty_bg)
 
     def _update_all_swatches(self):
-        for i in range(3):
+        for i in range(4):
             self._update_color_swatch(i)
 
     def _set_zone_indicator(self, zone_idx: int, state: str):
@@ -551,7 +552,7 @@ class App:
                 "height": self.zone3_h.get(),
             },
             "color": {
-                "colors": [{"hex": self.color_hex_vars[i].get()} for i in range(3)]
+                "colors": [{"hex": self.color_hex_vars[i].get()} for i in range(4)]
             },
             "detection": {
                 "tolerance": self.tolerance.get(),
@@ -610,7 +611,7 @@ class App:
             color = data.get("color", {})
             colors = color.get("colors")
             if isinstance(colors, list):
-                for i in range(3):
+                for i in range(4):
                     item = colors[i] if i < len(colors) and isinstance(colors[i], dict) else {}
                     self.color_hex_vars[i].set(str(item.get("hex", self.color_hex_vars[i].get())))
 
@@ -636,7 +637,7 @@ class App:
 
     def parse_targets(self) -> list[tuple[int, int, int]]:
         targets: list[tuple[int, int, int]] = []
-        for i in range(3):
+        for i in range(4):
             parsed = self._parse_color_slot(i)
             if parsed is not None:
                 targets.append(parsed)
