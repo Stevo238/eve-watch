@@ -784,11 +784,25 @@ class App:
             raise ValueError("Zone 3 width and height must be > 0")
         return WatchZone(x=x, y=y, width=w, height=h)
 
+    def _dxcam_region(self, zone: WatchZone) -> tuple[int, int, int, int]:
+        """Return (left, top, right, bottom) clamped to the dxcam output bounds.
+
+        DXcam raises 'invalid region' if any coordinate exceeds the output
+        resolution (e.g. 1536×864 on scaled displays).  We clamp here so the
+        app continues to work even when zone edges are slightly out-of-bounds.
+        """
+        cam = self.dx_camera
+        max_w = getattr(cam, "width", 99999)
+        max_h = getattr(cam, "height", 99999)
+        left   = max(0, min(zone.x, max_w - 1))
+        top    = max(0, min(zone.y, max_h - 1))
+        right  = max(left + 1, min(zone.x + zone.width,  max_w))
+        bottom = max(top  + 1, min(zone.y + zone.height, max_h))
+        return left, top, right, bottom
+
     def _match_zone(self, zone: WatchZone, targets: list, tolerance: int, sct) -> tuple[int, int]:
         if self.capture_backend == "dxcam" and self.dx_camera is not None:
-            right = zone.x + zone.width
-            bottom = zone.y + zone.height
-            frame = self.dx_camera.grab(region=(zone.x, zone.y, right, bottom))
+            frame = self.dx_camera.grab(region=self._dxcam_region(zone))
             return rgb_frame_best_match(frame, targets, tolerance)
         if sct is None:
             return 0, -1
@@ -900,9 +914,7 @@ class App:
 
     def _capture_zone_image(self, zone: WatchZone) -> Image.Image:
         if self.capture_backend == "dxcam" and self.dx_camera is not None:
-            right = zone.x + zone.width
-            bottom = zone.y + zone.height
-            frame = self.dx_camera.grab(region=(zone.x, zone.y, right, bottom))
+            frame = self.dx_camera.grab(region=self._dxcam_region(zone))
             if frame is not None:
                 return Image.fromarray(frame)
 
