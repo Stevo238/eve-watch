@@ -863,8 +863,11 @@ class App:
         self.monitor_thread.start()
 
     def _init_capture_backend(self):
+        # Idempotent — never tear down a camera that the monitor thread may be using
+        if self.dx_camera is not None:
+            return
+
         self.capture_backend = "mss" if mss is not None else "none"
-        self.dx_camera = None
 
         if dxcam is None or np is None:
             return
@@ -913,11 +916,12 @@ class App:
         self.status_text.set(f"Status: Silenced for {silence_ms // 1000}s")
 
     def _capture_zone_image(self, zone: WatchZone) -> Image.Image:
-        if self.capture_backend == "dxcam" and self.dx_camera is not None:
-            frame = self.dx_camera.grab(region=self._dxcam_region(zone))
-            if frame is not None:
-                return Image.fromarray(frame)
+        """Capture a zone image for the preview window.
 
+        Always uses mss regardless of the active monitoring backend — mss is
+        thread-safe and runs on the main thread, so using the shared dxcam
+        camera here would cause concurrent-access crashes and blank frames.
+        """
         if mss is None:
             raise RuntimeError("mss is not installed")
 
@@ -943,8 +947,6 @@ class App:
         except ValueError as exc:
             messagebox.showerror("Invalid zone", str(exc))
             return
-
-        self._init_capture_backend()
 
         if self.preview_window is not None and self.preview_window.winfo_exists():
             self._preview_zone_num = zone_num
