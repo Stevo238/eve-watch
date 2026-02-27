@@ -146,6 +146,8 @@ class App:
         self.interval_ms = tk.StringVar(value="50")
         self.cooldown_ms = tk.StringVar(value="2000")
         self.silence_ms = tk.StringVar(value="60")
+        self.volume_pct = tk.IntVar(value=80)
+        self.clear_delay_sec = tk.StringVar(value="1")
         self.dark_mode = tk.BooleanVar(value=True)
 
         self.status_text = tk.StringVar(value="Status: Idle")
@@ -273,6 +275,17 @@ class App:
         tk.Entry(settings_box, textvariable=self.cooldown_ms, width=7).grid(row=1, column=1, sticky="we", padx=(0, 12), pady=1)
         tk.Label(settings_box, text="Silence sec").grid(row=1, column=2, sticky="w", padx=(0, 4), pady=1)
         tk.Entry(settings_box, textvariable=self.silence_ms, width=7).grid(row=1, column=3, sticky="we", pady=1)
+
+        # Row 2: Volume slider
+        tk.Label(settings_box, text="Alert volume %").grid(row=2, column=0, sticky="w", padx=(0, 4), pady=1)
+        tk.Scale(settings_box, from_=0, to=100, orient="horizontal",
+                 variable=self.volume_pct, showvalue=True).grid(
+            row=2, column=1, columnspan=3, sticky="we", pady=1)
+
+        # Row 3: Clear delay
+        tk.Label(settings_box, text="Clear delay sec").grid(row=3, column=0, sticky="w", padx=(0, 4), pady=1)
+        tk.Entry(settings_box, textvariable=self.clear_delay_sec, width=7).grid(
+            row=3, column=1, sticky="we", padx=(0, 12), pady=1)
 
         # --- Controls ---
         controls = tk.Frame(frame)
@@ -458,6 +471,12 @@ class App:
                         activebackground=pbg,
                         selectcolor=s["chk_sel"],
                     )
+                elif cls == "Scale":
+                    w.configure(
+                        bg=pbg, fg=s["label_fg"],
+                        troughcolor=s["entry_bg"],
+                        activebackground=s["btn_act"],
+                    )
             except tk.TclError:
                 pass
             for child in w.winfo_children():
@@ -559,6 +578,8 @@ class App:
                 "interval_ms": self.interval_ms.get(),
                 "cooldown_ms": self.cooldown_ms.get(),
                 "silence_sec": self.silence_ms.get(),
+                "volume_pct": self.volume_pct.get(),
+                "clear_delay_sec": self.clear_delay_sec.get(),
             },
         }
 
@@ -620,6 +641,11 @@ class App:
             self.interval_ms.set(str(detection.get("interval_ms", self.interval_ms.get())))
             self.cooldown_ms.set(str(detection.get("cooldown_ms", self.cooldown_ms.get())))
             self.silence_ms.set(str(detection.get("silence_sec", self.silence_ms.get())))
+            try:
+                self.volume_pct.set(int(detection.get("volume_pct", self.volume_pct.get())))
+            except (ValueError, TypeError):
+                pass
+            self.clear_delay_sec.set(str(detection.get("clear_delay_sec", self.clear_delay_sec.get())))
 
             if show_message:
                 messagebox.showinfo("Profile loaded", f"Loaded from {self.config_path.name}")
@@ -884,9 +910,36 @@ class App:
         self._reset_zone_indicators()
         self.status_text.set("Status: Stopped")
 
+    @staticmethod
+    def _make_beep_wav(freq: int, duration_ms: int, volume: float) -> bytes:
+        """Return a minimal 16-bit mono 44100 Hz PCM WAV buffer.
+
+        volume is 0.0 (silent) to 1.0 (full amplitude).  Generating the WAV
+        in-memory means we control amplitude directly without touching the
+        system volume.
+        """
+        import struct
+        import math as _math
+        sample_rate = 44100
+        num_samples = int(sample_rate * duration_ms / 1000)
+        amplitude = int(32767 * max(0.0, min(1.0, volume)))
+        samples = bytearray()
+        for i in range(num_samples):
+            val = int(amplitude * _math.sin(2 * _math.pi * freq * i / sample_rate))
+            samples += struct.pack('<h', val)
+        data_size = len(samples)
+        riff_size = 36 + data_size
+        header   = struct.pack('<4sI4s', b'RIFF', riff_size, b'WAVE')
+        fmt      = struct.pack('<4sIHHIIHH', b'fmt ', 16, 1, 1,
+                               sample_rate, sample_rate * 2, 2, 16)
+        data_hdr = struct.pack('<4sI', b'data', data_size)
+        return header + fmt + data_hdr + bytes(samples)
+
     def _play_tone(self) -> str:
+        vol = self.volume_pct.get() / 100.0
         try:
-            winsound.Beep(1200, 180)
+            wav = self._make_beep_wav(1200, 180, vol)
+            winsound.PlaySound(wav, winsound.SND_MEMORY)
             return "beep"
         except Exception:
             try:
@@ -894,6 +947,15 @@ class App:
             except Exception:
                 pass
             return "message"
+
+    def _play_clear_tone(self):
+        """Play a distinct lower-pitched tone when the color is no longer detected."""
+        vol = self.volume_pct.get() / 100.0
+        try:
+            wav = self._make_beep_wav(600, 220, vol)
+            winsound.PlaySound(wav, winsound.SND_MEMORY | winsound.SND_ASYNC)
+        except Exception:
+            pass
 
     def on_close(self):
         self._stop_preview()
@@ -1005,6 +1067,9 @@ class App:
 
     def monitor_loop(self):
         last_beep_ts = 0.0
+        last_found = False
+        gone_since_ms: float = 0.0
+        clear_played = False
         sct = mss.mss() if mss is not None else None
 
         try:
@@ -1031,6 +1096,10 @@ class App:
             interval_ms = int(self.interval_ms.get())
             cooldown_ms = int(self.cooldown_ms.get())
             silence_ms = int(self.silence_ms.get()) * 1000
+            try:
+                clear_delay_ms = max(100, int(float(self.clear_delay_sec.get()) * 1000))
+            except (ValueError, TypeError):
+                clear_delay_ms = 1000
             multi_zone = len(active_zones) > 1
 
             while self.running:
@@ -1053,6 +1122,21 @@ class App:
                 muted_seconds_left = max(0, int((self.mute_until_ms - now + 999) // 1000))
                 color_i = match_idx + 1
                 zone_label = f"Z{matched_zone} " if multi_zone else ""
+
+                # Clear-tone tracking
+                if found:
+                    if not last_found:
+                        clear_played = False  # new detection resets the clear flag
+                    gone_since_ms = 0.0
+                else:
+                    if last_found:
+                        gone_since_ms = now  # start the clear timer
+                    if (not clear_played and gone_since_ms > 0
+                            and (now - gone_since_ms) >= clear_delay_ms
+                            and not muted):
+                        self._play_clear_tone()
+                        clear_played = True
+                last_found = found
 
                 if found and not muted and now - last_beep_ts >= cooldown_ms:
                     tone_mode = self._play_tone()
