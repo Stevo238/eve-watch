@@ -279,7 +279,8 @@ class App:
         # Row 2: Volume slider
         tk.Label(settings_box, text="Alert volume %").grid(row=2, column=0, sticky="w", padx=(0, 4), pady=1)
         tk.Scale(settings_box, from_=0, to=100, orient="horizontal",
-                 variable=self.volume_pct, showvalue=True).grid(
+                 variable=self.volume_pct, showvalue=True,
+                 highlightthickness=0, bd=0).grid(
             row=2, column=1, columnspan=3, sticky="we", pady=1)
 
         # Row 3: Clear delay
@@ -476,6 +477,9 @@ class App:
                         bg=pbg, fg=s["label_fg"],
                         troughcolor=s["entry_bg"],
                         activebackground=s["btn_act"],
+                        highlightthickness=0,
+                        highlightbackground=pbg,
+                        bd=0,
                     )
             except tk.TclError:
                 pass
@@ -949,11 +953,16 @@ class App:
             return "message"
 
     def _play_clear_tone(self):
-        """Play a distinct lower-pitched tone when the color is no longer detected."""
+        """Play a distinct lower-pitched tone when the color is no longer detected.
+
+        NOTE: must NOT use SND_ASYNC with SND_MEMORY — the bytes buffer would be
+        garbage-collected before Windows finishes reading it.  The monitor loop
+        runs on a background thread so blocking here for ~220 ms is fine.
+        """
         vol = self.volume_pct.get() / 100.0
         try:
             wav = self._make_beep_wav(600, 220, vol)
-            winsound.PlaySound(wav, winsound.SND_MEMORY | winsound.SND_ASYNC)
+            winsound.PlaySound(wav, winsound.SND_MEMORY)
         except Exception:
             pass
 
