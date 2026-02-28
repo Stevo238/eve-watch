@@ -172,10 +172,12 @@ class App:
             self.zone3_enabled, self.zone3_x, self.zone3_y, self.zone3_w, self.zone3_h,
             self.color_hex_vars[0], self.color_hex_vars[1], self.color_hex_vars[2], self.color_hex_vars[3],
             self.tolerance, self.interval_ms, self.cooldown_ms, self.silence_ms,
-            self.alert_mode, self.oneshot_beeps,
         ]
         for _v in _watched:
             _v.trace_add("write", self._on_setting_changed)
+        # Mode/beep-count changes restart immediately (discrete clicks, no debounce needed)
+        self.alert_mode.trace_add("write", self._on_mode_changed)
+        self.oneshot_beeps.trace_add("write", self._on_mode_changed)
 
     def _resolve_profile_path(self) -> Path:
         appdata = os.getenv("APPDATA")
@@ -542,13 +544,22 @@ class App:
             self.root.after_cancel(self._restart_pending_id)
         self._restart_pending_id = self.root.after(700, self._do_restart)
 
+    def _on_mode_changed(self, *_args):
+        """Immediate restart when alert mode or beep count changes — no debounce."""
+        if not self.running:
+            return
+        if self._restart_pending_id is not None:
+            self.root.after_cancel(self._restart_pending_id)
+        self.status_text.set("Status: Restarting (mode changed)...")
+        self._restart_pending_id = self.root.after(50, self._do_restart)
+
     def _do_restart(self):
         self._restart_pending_id = None
         if not self.running:
             return
         self.stop()
         if self.monitor_thread and self.monitor_thread.is_alive():
-            self.monitor_thread.join(timeout=0.5)
+            self.monitor_thread.join(timeout=2.0)
         self.start(silent=True)
 
     def _auto_recover(self):
