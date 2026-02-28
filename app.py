@@ -148,6 +148,8 @@ class App:
         self.silence_ms = tk.StringVar(value="60")
         self.volume_pct = tk.IntVar(value=80)
         self.clear_delay_sec = tk.StringVar(value="1")
+        self.alert_mode = tk.StringVar(value="continuous")  # "continuous" | "oneshot"
+        self.oneshot_beeps = tk.StringVar(value="3")
         self.dark_mode = tk.BooleanVar(value=True)
 
         self.status_text = tk.StringVar(value="Status: Idle")
@@ -283,10 +285,21 @@ class App:
                  highlightthickness=0, bd=0).grid(
             row=2, column=1, columnspan=3, sticky="we", pady=1)
 
-        # Row 3: Clear delay
+        # Row 3: Clear delay | Mode
         tk.Label(settings_box, text="Clear delay sec").grid(row=3, column=0, sticky="w", padx=(0, 4), pady=1)
         tk.Entry(settings_box, textvariable=self.clear_delay_sec, width=7).grid(
             row=3, column=1, sticky="we", padx=(0, 12), pady=1)
+
+        # Row 4: Alert mode
+        mode_frame = tk.Frame(settings_box)
+        mode_frame.grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 1))
+        tk.Label(mode_frame, text="Alert mode:").pack(side="left", padx=(0, 6))
+        tk.Radiobutton(mode_frame, text="Continuous", variable=self.alert_mode,
+                       value="continuous").pack(side="left", padx=(0, 8))
+        tk.Radiobutton(mode_frame, text="One-shot", variable=self.alert_mode,
+                       value="oneshot").pack(side="left", padx=(0, 8))
+        tk.Label(mode_frame, text="Beeps:").pack(side="left", padx=(4, 2))
+        tk.Entry(mode_frame, textvariable=self.oneshot_beeps, width=4).pack(side="left")
 
         # --- Controls ---
         controls = tk.Frame(frame)
@@ -466,7 +479,7 @@ class App:
                         relief="flat" if dark else "raised",
                         borderwidth=1,
                     )
-                elif cls == "Checkbutton":
+                elif cls in ("Checkbutton", "Radiobutton"):
                     w.configure(
                         bg=pbg, fg=s["label_fg"],
                         activebackground=pbg,
@@ -584,6 +597,8 @@ class App:
                 "silence_sec": self.silence_ms.get(),
                 "volume_pct": self.volume_pct.get(),
                 "clear_delay_sec": self.clear_delay_sec.get(),
+                "alert_mode": self.alert_mode.get(),
+                "oneshot_beeps": self.oneshot_beeps.get(),
             },
         }
 
@@ -650,6 +665,10 @@ class App:
             except (ValueError, TypeError):
                 pass
             self.clear_delay_sec.set(str(detection.get("clear_delay_sec", self.clear_delay_sec.get())))
+            mode = detection.get("alert_mode", self.alert_mode.get())
+            if mode in ("continuous", "oneshot"):
+                self.alert_mode.set(mode)
+            self.oneshot_beeps.set(str(detection.get("oneshot_beeps", self.oneshot_beeps.get())))
 
             if show_message:
                 messagebox.showinfo("Profile loaded", f"Loaded from {self.config_path.name}")
@@ -1109,6 +1128,13 @@ class App:
                 clear_delay_ms = max(100, int(float(self.clear_delay_sec.get()) * 1000))
             except (ValueError, TypeError):
                 clear_delay_ms = 1000
+            oneshot_mode = self.alert_mode.get() == "oneshot"
+            try:
+                oneshot_limit = max(1, int(self.oneshot_beeps.get()))
+            except (ValueError, TypeError):
+                oneshot_limit = 3
+            oneshot_beep_count = 0   # beeps fired in current detection event
+            oneshot_silenced = False  # True once limit reached, until color clears
             multi_zone = len(active_zones) > 1
 
             while self.running:
@@ -1132,26 +1158,41 @@ class App:
                 color_i = match_idx + 1
                 zone_label = f"Z{matched_zone} " if multi_zone else ""
 
-                # Clear-tone tracking
+                # Clear-tone tracking + one-shot reset
                 if found:
                     if not last_found:
-                        clear_played = False  # new detection resets the clear flag
+                        # Fresh leading edge — reset clear flag and one-shot counter
+                        clear_played = False
+                        oneshot_beep_count = 0
+                        oneshot_silenced = False
                     gone_since_ms = 0.0
                 else:
                     if last_found:
                         gone_since_ms = now  # start the clear timer
-                    if (not clear_played and gone_since_ms > 0
-                            and (now - gone_since_ms) >= clear_delay_ms
-                            and not muted):
-                        self._play_clear_tone()
-                        clear_played = True
+                    if gone_since_ms > 0 and (now - gone_since_ms) >= clear_delay_ms:
+                        # Color has been gone long enough
+                        if not clear_played and not muted:
+                            self._play_clear_tone()
+                            clear_played = True
+                        # Reset one-shot arm so it fires again next detection
+                        oneshot_silenced = False
+                        oneshot_beep_count = 0
                 last_found = found
 
-                if found and not muted and now - last_beep_ts >= cooldown_ms:
+                # In one-shot mode, suppress beeping once limit is reached
+                oneshot_blocked = oneshot_mode and oneshot_silenced
+
+                if found and not muted and not oneshot_blocked and now - last_beep_ts >= cooldown_ms:
                     tone_mode = self._play_tone()
                     last_beep_ts = now
+                    if oneshot_mode:
+                        oneshot_beep_count += 1
+                        if oneshot_beep_count >= oneshot_limit:
+                            oneshot_silenced = True
                     suffix = "Tone played." if tone_mode == "beep" else "System alert played."
                     self._set_status(f"Status: {zone_label}Color {color_i} found ({match_count} px). {suffix}")
+                elif found and oneshot_silenced:
+                    self._set_status(f"Status: {zone_label}Color {color_i} found — one-shot silenced (waiting clear)...")
                 elif found and muted:
                     self._set_status(f"Status: {zone_label}Color {color_i} found ({match_count} px, muted {muted_seconds_left}s left).")
                 elif found:
