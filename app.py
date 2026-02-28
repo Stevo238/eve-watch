@@ -1158,25 +1158,20 @@ class App:
                 color_i = match_idx + 1
                 zone_label = f"Z{matched_zone} " if multi_zone else ""
 
-                # Clear-tone tracking + one-shot reset
+                # Track gone-since timer and confirmed clear
                 if found:
-                    if not last_found and not oneshot_silenced:
-                        # Fresh leading edge AND already cleared — reset counts for new event
-                        clear_played = False
-                        oneshot_beep_count = 0
+                    clear_played = False   # allow next clear event to fire
                     gone_since_ms = 0.0
                 else:
                     if last_found:
                         gone_since_ms = now  # start the clear timer
                     if gone_since_ms > 0 and (now - gone_since_ms) >= clear_delay_ms:
-                        # Confirmed all-clear — play tone and re-arm in a single atomic step.
-                        # The clear tone IS the release of the one-shot mute; they happen
-                        # together exactly once per clear event (guarded by clear_played).
                         if not clear_played:
                             if not muted:
                                 self._play_clear_tone()
                             clear_played = True
-                            oneshot_silenced = False   # re-arm only here
+                            # Confirmed all-clear: re-arm one-shot for next detection
+                            oneshot_silenced = False
                             oneshot_beep_count = 0
                 last_found = found
 
