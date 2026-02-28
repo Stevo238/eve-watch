@@ -1169,13 +1169,15 @@ class App:
                     if last_found:
                         gone_since_ms = now  # start the clear timer
                     if gone_since_ms > 0 and (now - gone_since_ms) >= clear_delay_ms:
-                        # Color has been truly gone long enough — confirmed all-clear
-                        if not clear_played and not muted:
-                            self._play_clear_tone()
+                        # Confirmed all-clear — play tone and re-arm in a single atomic step.
+                        # The clear tone IS the release of the one-shot mute; they happen
+                        # together exactly once per clear event (guarded by clear_played).
+                        if not clear_played:
+                            if not muted:
+                                self._play_clear_tone()
                             clear_played = True
-                        # Only NOW re-arm the one-shot so a fresh detection can beep again
-                        oneshot_silenced = False
-                        oneshot_beep_count = 0
+                            oneshot_silenced = False   # re-arm only here
+                            oneshot_beep_count = 0
                 last_found = found
 
                 # In one-shot mode, suppress beeping once limit is reached
