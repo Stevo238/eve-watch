@@ -1160,21 +1160,20 @@ class App:
 
                 # Clear-tone tracking + one-shot reset
                 if found:
-                    if not last_found:
-                        # Fresh leading edge — reset clear flag and one-shot counter
+                    if not last_found and not oneshot_silenced:
+                        # Fresh leading edge AND already cleared — reset counts for new event
                         clear_played = False
                         oneshot_beep_count = 0
-                        oneshot_silenced = False
                     gone_since_ms = 0.0
                 else:
                     if last_found:
                         gone_since_ms = now  # start the clear timer
                     if gone_since_ms > 0 and (now - gone_since_ms) >= clear_delay_ms:
-                        # Color has been gone long enough
+                        # Color has been truly gone long enough — confirmed all-clear
                         if not clear_played and not muted:
                             self._play_clear_tone()
                             clear_played = True
-                        # Reset one-shot arm so it fires again next detection
+                        # Only NOW re-arm the one-shot so a fresh detection can beep again
                         oneshot_silenced = False
                         oneshot_beep_count = 0
                 last_found = found
