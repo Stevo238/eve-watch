@@ -100,8 +100,8 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Screen Color Tone Watcher v1")
-        self.root.geometry("660x490")
-        self.root.minsize(580, 460)
+        self.root.geometry("660x540")
+        self.root.minsize(580, 510)
         self.root.resizable(True, True)
         self.config_path = self._resolve_profile_path()
 
@@ -172,6 +172,7 @@ class App:
             self.zone3_enabled, self.zone3_x, self.zone3_y, self.zone3_w, self.zone3_h,
             self.color_hex_vars[0], self.color_hex_vars[1], self.color_hex_vars[2], self.color_hex_vars[3],
             self.tolerance, self.interval_ms, self.cooldown_ms, self.silence_ms,
+            self.alert_mode, self.oneshot_beeps,
         ]
         for _v in _watched:
             _v.trace_add("write", self._on_setting_changed)
