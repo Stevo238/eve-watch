@@ -1,6 +1,6 @@
 # Screen Color Tone Watcher
 
-A small Windows desktop app that watches a configurable rectangle on your screen.
+A small desktop app (Windows + Linux) that watches a configurable rectangle on your screen.
 If the target color appears in that zone, it plays an audible tone.
 
 ## Features
@@ -17,8 +17,8 @@ If the target color appears in that zone, it plays an audible tone.
 - Auto-load profile on startup and auto-save on start/exit (`profile.json`)
 
 ## Requirements
-- Windows
-- Python 3.10+
+- Windows or Linux
+- Python 3.10+ (only if running from source; the packaged binaries need nothing)
 
 ## Setup
 ```powershell
@@ -32,9 +32,42 @@ pip install -r requirements.txt
 python app.py
 ```
 
+## Linux
+
+Download `eve-watch-linux` from the [Releases page](https://github.com/Stevo238/eve-watch/releases), then:
+
+```bash
+chmod +x eve-watch-linux
+./eve-watch-linux
+```
+
+Or run from source:
+
+```bash
+sudo apt install python3-tk
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python3 app.py
+```
+
+**Important — Wayland vs X11:** screen capture uses `mss`, which reads the X11
+display. Ubuntu 25.10's default GNOME desktop is Wayland-only, so:
+
+- Apps running through **XWayland** (anything under Wine/Proton — including EVE
+  Online via Steam or the official launcher) **can** be captured.
+- Native Wayland windows appear **black** to the capture. Use the built-in
+  **Preview** button to confirm the app can actually see your target window.
+- If capture fails entirely, log into an X11/Xorg session (may require
+  installing one on 25.10) or run the game windowed/borderless.
+
+Tones play through `paplay`/`pw-play`/`aplay` (PipeWire and PulseAudio ship with
+Ubuntu, so no extra install needed). The profile is saved to
+`~/.config/eve-watch/profile.json`.
+
 ## Notes
-- Beep playback uses Windows `winsound.Beep`, so frequency and duration are adjustable.
-- Tone volume is controlled by your system volume.
-- The app auto-selects a capture backend: `DXcam` first (better for many games), then `mss` fallback.
+- Windows beep playback uses `winsound`; Linux writes the same generated WAV through PipeWire/ALSA.
+- Alert volume is controlled by the in-app volume slider.
+- The app auto-selects a capture backend: `DXcam` first on Windows (better for many games), then `mss` fallback (always used on Linux).
 - If your game is in exclusive fullscreen and detection fails, try borderless-windowed mode.
-- Profile settings are saved to `%APPDATA%\\eve-watch\\profile.json` in packaged builds.
+- Profile settings are saved to `%APPDATA%\eve-watch\profile.json` (Windows) or `~/.config/eve-watch/profile.json` (Linux) in packaged builds.

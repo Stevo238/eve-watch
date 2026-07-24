@@ -10,7 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox
 
-import winsound
+try:
+    import winsound
+except ImportError:
+    winsound = None
 from PIL import Image, ImageDraw, ImageTk
 
 try:
@@ -970,18 +973,55 @@ class App:
         data_hdr = struct.pack('<4sI', b'data', data_size)
         return header + fmt + data_hdr + bytes(samples)
 
+    def _play_wav(self, wav: bytes) -> bool:
+        """Play a WAV buffer, blocking until playback finishes.
+
+        Windows: winsound plays straight from memory.
+        Linux/macOS: the buffer is written to a reusable temp file and handed
+        to the first available CLI player (paplay = PulseAudio/PipeWire,
+        pw-play = PipeWire, aplay = ALSA, afplay = macOS).
+        """
+        if winsound is not None:
+            winsound.PlaySound(wav, winsound.SND_MEMORY)
+            return True
+        import subprocess
+        import tempfile
+        path = getattr(self, "_wav_tmp_path", None)
+        if path is None:
+            fd, path = tempfile.mkstemp(prefix="eve-watch-", suffix=".wav")
+            os.close(fd)
+            self._wav_tmp_path = path
+        Path(path).write_bytes(wav)
+        for cmd in (["paplay"], ["pw-play"], ["aplay", "-q"], ["afplay"]):
+            try:
+                subprocess.run(
+                    cmd + [path],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+                return True
+            except Exception:
+                continue
+        return False
+
     def _play_tone(self) -> str:
         vol = self.volume_pct.get() / 100.0
         try:
             wav = self._make_beep_wav(1200, 180, vol)
-            winsound.PlaySound(wav, winsound.SND_MEMORY)
-            return "beep"
+            if self._play_wav(wav):
+                return "beep"
         except Exception:
-            try:
+            pass
+        try:
+            if winsound is not None:
                 winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
-            except Exception:
-                pass
-            return "message"
+            else:
+                self.root.after(0, self.root.bell)
+        except Exception:
+            pass
+        return "message"
 
     def _play_clear_tone(self):
         """Play a distinct lower-pitched tone when the color is no longer detected.
@@ -993,7 +1033,7 @@ class App:
         vol = self.volume_pct.get() / 100.0
         try:
             wav = self._make_beep_wav(600, 220, vol)
-            winsound.PlaySound(wav, winsound.SND_MEMORY)
+            self._play_wav(wav)
         except Exception:
             pass
 
@@ -1001,6 +1041,12 @@ class App:
         self._stop_preview()
         self.stop()
         self.save_profile(show_message=False)
+        tmp = getattr(self, "_wav_tmp_path", None)
+        if tmp:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
         self.root.destroy()
 
     def silence_for_period(self):

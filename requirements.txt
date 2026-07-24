@@ -1,3 +1,3 @@
 mss>=9.0.1
 Pillow>=10.4.0
-dxcam>=0.0.5
+dxcam>=0.0.5; sys_platform == "win32"
