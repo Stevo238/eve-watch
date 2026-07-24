@@ -19,7 +19,7 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Build
-        run: pyinstaller --onefile --name eve-watch-linux app.py
+        run: pyinstaller --onefile --name eve-watch-linux --hidden-import PIL._tkinter_finder --hidden-import PIL.ImageTk app.py
 
       - name: Smoke test (launch under virtual display)
         run: |
