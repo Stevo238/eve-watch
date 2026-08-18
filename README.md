@@ -16,6 +16,33 @@ If the target color appears in that zone, it plays an audible tone.
 - Save/Load profile buttons for settings persistence
 - Auto-load profile on startup and auto-save on start/exit (`profile.json`)
 
+## Corp Intel reporting
+
+The app can report to the Intel board on the corp site so mates can see who has
+eyes where. Any alert — any colour, in any zone — is the flag; the board never
+shows which colour tripped, only that this post is in contact.
+
+Fill in the **Corp Intel** section:
+
+| Field | What it is |
+|-------|------------|
+| Server | The corp site, e.g. `https://eve.motronimeadows.com` |
+| Token | Issued on the site's Intel tab under **Watch posts**. Shown once — copy it straight away |
+| Pilot | Your character name, shown on the board |
+| System | The system you have eyes in. **Required** — no system, no card on the board |
+| Post label | Optional, e.g. "Tama gate cam" |
+
+Tick **Report to corp Intel board**, then press Start as usual. The status line
+under the section shows whether reporting is working.
+
+Reporting runs on its own thread, so a slow or offline server can never delay
+your own audible alert. A heartbeat goes out every 20 seconds carrying the full
+state, so a single dropped message corrects itself on the next beat. If the app
+stops sending, your card goes stale on the board after 90 seconds rather than
+sitting there falsely green.
+
+Settings (token included) are saved in `profile.json` alongside everything else.
+
 ## Requirements
 - Windows or Linux
 - Python 3.10+ (only if running from source; the packaged binaries need nothing)

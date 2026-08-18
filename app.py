@@ -6,6 +6,9 @@ import sys
 import threading
 import time
 import tkinter as tk
+import urllib.error
+import urllib.request
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox
@@ -99,12 +102,156 @@ def rgb_frame_best_match(frame, targets: list[tuple[int, int, int]], tolerance: 
     return best_count, best_idx
 
 
+INTEL_HEARTBEAT_SEC = 20.0
+INTEL_TIMEOUT_SEC = 8.0
+
+
+class IntelReporter:
+    """Reports watch state to the corp Intel board from a background thread.
+
+    monitor_loop only ever calls set_alerting(), which takes a lock and sets an
+    event — no network work happens on the scan loop, so a slow or dead server
+    can never delay the scout's own audio alert.
+
+    Every heartbeat carries the full current state, so a dropped event message
+    self-heals on the next tick rather than leaving the board wrong.
+    """
+
+    def __init__(self, status_cb):
+        self._status_cb = status_cb
+        self._lock = threading.Lock()
+        self._cfg: dict | None = None
+        self._alerting = False
+        self._detail: dict = {}
+        self._watching = False
+        self._session_id = ""
+        self._pending = False
+        self._wake = threading.Event()
+        self._shutdown = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._last_ok = 0.0
+        self._last_error = ""
+
+    # -- called from the UI thread -------------------------------------
+    def configure(self, cfg: dict | None):
+        with self._lock:
+            self._cfg = cfg
+        if cfg is not None:
+            self._ensure_thread()
+        self._wake.set()
+
+    def session_start(self):
+        with self._lock:
+            self._session_id = uuid.uuid4().hex
+            self._watching = True
+            self._alerting = False
+            self._detail = {}
+            self._pending = True
+        self._ensure_thread()
+        self._wake.set()
+
+    def session_end(self):
+        with self._lock:
+            if not self._watching:
+                return
+            self._watching = False
+            self._alerting = False
+            self._pending = True
+        self._wake.set()
+
+    def shutdown(self):
+        self._shutdown.set()
+        self._wake.set()
+
+    # -- called from the monitor thread (hot path — must stay cheap) ----
+    def set_alerting(self, alerting: bool, detail: dict | None = None):
+        with self._lock:
+            if not self._watching or alerting == self._alerting:
+                return
+            self._alerting = alerting
+            self._detail = detail or {}
+            self._pending = True
+        self._wake.set()
+
+    # -- worker --------------------------------------------------------
+    def _ensure_thread(self):
+        if self._thread is None or not self._thread.is_alive():
+            self._shutdown.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+
+    def _run(self):
+        while not self._shutdown.is_set():
+            cfg, payload = self._snapshot()
+            if cfg is not None and payload is not None:
+                self._post(cfg, payload)
+            self._wake.wait(INTEL_HEARTBEAT_SEC)
+            self._wake.clear()
+
+    def _snapshot(self):
+        with self._lock:
+            if self._cfg is None:
+                self._pending = False
+                return None, None
+            if not self._watching and not self._pending:
+                return None, None
+            cfg = dict(self._cfg)
+            payload = {
+                "session_id": self._session_id,
+                "pilot": cfg["pilot"],
+                "system": cfg["system"],
+                "label": cfg["label"],
+                "watching": self._watching,
+                "alerting": self._alerting,
+                "detail": dict(self._detail),
+                "heartbeat_sec": INTEL_HEARTBEAT_SEC,
+            }
+            self._pending = False
+            return cfg, payload
+
+    def _post(self, cfg: dict, payload: dict):
+        url = cfg["url"].rstrip("/") + "/intel/report"
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"), method="POST"
+        )
+        req.add_header("Content-Type", "application/json")
+        req.add_header("X-Intel-Token", cfg["token"])
+        req.add_header("User-Agent", "eve-watch-intel/1.0")
+        try:
+            with urllib.request.urlopen(req, timeout=INTEL_TIMEOUT_SEC) as resp:
+                resp.read(256)
+            with self._lock:
+                self._last_ok = time.time()
+                self._last_error = ""
+            self._emit("reporting" if payload["watching"] else "stopped reporting")
+        except urllib.error.HTTPError as exc:
+            detail = "token rejected" if exc.code in (401, 403) else f"server said {exc.code}"
+            self._fail(detail)
+        except Exception as exc:
+            self._fail(type(exc).__name__)
+
+    def _fail(self, detail: str):
+        # No immediate retry — the next heartbeat carries the full state anyway.
+        with self._lock:
+            self._last_error = detail
+            last_ok = self._last_ok
+        if last_ok:
+            ago = int(time.time() - last_ok)
+            self._emit(f"{detail} (last ok {ago}s ago)")
+        else:
+            self._emit(f"{detail} — never connected")
+
+    def _emit(self, text: str):
+        if self._status_cb is not None:
+            self._status_cb(text)
+
+
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Screen Color Tone Watcher v1")
-        self.root.geometry("660x540")
-        self.root.minsize(580, 510)
+        self.root.geometry("660x648")
+        self.root.minsize(580, 618)
         self.root.resizable(True, True)
         self.config_path = self._resolve_profile_path()
 
@@ -155,6 +302,15 @@ class App:
         self.oneshot_beeps = tk.StringVar(value="3")
         self.dark_mode = tk.BooleanVar(value=True)
 
+        self.intel_enabled = tk.BooleanVar(value=False)
+        self.intel_url = tk.StringVar(value="https://eve.motronimeadows.com")
+        self.intel_token = tk.StringVar(value="")
+        self.intel_pilot = tk.StringVar(value="")
+        self.intel_system = tk.StringVar(value="")
+        self.intel_label = tk.StringVar(value="")
+        self.intel_status = tk.StringVar(value="Corp Intel: off")
+        self.intel = IntelReporter(self._on_intel_status)
+
         self.status_text = tk.StringVar(value="Status: Idle")
         self.zone_indicator_canvases: list = [None, None, None]
         self.color_swatch_labels: list = [None, None, None, None]
@@ -181,6 +337,12 @@ class App:
         # Mode/beep-count changes restart immediately (discrete clicks, no debounce needed)
         self.alert_mode.trace_add("write", self._on_mode_changed)
         self.oneshot_beeps.trace_add("write", self._on_mode_changed)
+
+        # Intel settings never restart the scan loop — they only re-push config
+        for _v in (self.intel_enabled, self.intel_url, self.intel_token,
+                   self.intel_pilot, self.intel_system, self.intel_label):
+            _v.trace_add("write", self._refresh_intel)
+        self._refresh_intel()
 
     def _resolve_profile_path(self) -> Path:
         appdata = os.getenv("APPDATA")
@@ -306,6 +468,37 @@ class App:
                        value="oneshot").pack(side="left", padx=(0, 8))
         tk.Label(mode_frame, text="Beeps:").pack(side="left", padx=(4, 2))
         tk.Entry(mode_frame, textvariable=self.oneshot_beeps, width=4).pack(side="left")
+
+        # --- Corp Intel ---
+        intel_box = tk.LabelFrame(frame, text="Corp Intel", padx=6, pady=3)
+        intel_box.pack(fill="x", pady=(0, 3))
+        intel_box.columnconfigure(1, weight=1)
+        intel_box.columnconfigure(3, weight=1)
+
+        tk.Checkbutton(intel_box, text="Report to corp Intel board",
+                       variable=self.intel_enabled).grid(
+            row=0, column=0, columnspan=4, sticky="w", pady=(0, 1))
+
+        tk.Label(intel_box, text="Server").grid(row=1, column=0, sticky="w", padx=(0, 4), pady=1)
+        tk.Entry(intel_box, textvariable=self.intel_url).grid(
+            row=1, column=1, columnspan=3, sticky="we", pady=1)
+
+        tk.Label(intel_box, text="Token").grid(row=2, column=0, sticky="w", padx=(0, 4), pady=1)
+        tk.Entry(intel_box, textvariable=self.intel_token, show="*").grid(
+            row=2, column=1, sticky="we", padx=(0, 12), pady=1)
+        tk.Label(intel_box, text="Pilot").grid(row=2, column=2, sticky="w", padx=(0, 4), pady=1)
+        tk.Entry(intel_box, textvariable=self.intel_pilot).grid(
+            row=2, column=3, sticky="we", pady=1)
+
+        tk.Label(intel_box, text="System").grid(row=3, column=0, sticky="w", padx=(0, 4), pady=1)
+        tk.Entry(intel_box, textvariable=self.intel_system).grid(
+            row=3, column=1, sticky="we", padx=(0, 12), pady=1)
+        tk.Label(intel_box, text="Post label").grid(row=3, column=2, sticky="w", padx=(0, 4), pady=1)
+        tk.Entry(intel_box, textvariable=self.intel_label).grid(
+            row=3, column=3, sticky="we", pady=1)
+
+        tk.Label(intel_box, textvariable=self.intel_status, anchor="w").grid(
+            row=4, column=0, columnspan=4, sticky="we", pady=(2, 0))
 
         # --- Controls ---
         controls = tk.Frame(frame)
@@ -538,6 +731,55 @@ class App:
             pass
 
     # ------------------------------------------------------------------
+    # Corp Intel reporting
+    # ------------------------------------------------------------------
+    def _intel_cfg(self) -> dict | None:
+        """Validated reporting config, or None when reporting can't run."""
+        if not self.intel_enabled.get():
+            return None
+        url = self.intel_url.get().strip()
+        token = self.intel_token.get().strip()
+        pilot = self.intel_pilot.get().strip()
+        system = self.intel_system.get().strip()
+        if not (url and token and pilot and system):
+            return None
+        return {
+            "url": url,
+            "token": token,
+            "pilot": pilot,
+            "system": system,
+            "label": self.intel_label.get().strip(),
+        }
+
+    def _intel_problem(self) -> str:
+        if not self.intel_enabled.get():
+            return "off"
+        if not self.intel_url.get().strip():
+            return "server URL required"
+        if not self.intel_token.get().strip():
+            return "token required"
+        if not self.intel_pilot.get().strip():
+            return "pilot name required"
+        if not self.intel_system.get().strip():
+            return "system name required"
+        return ""
+
+    def _refresh_intel(self, *_args):
+        cfg = self._intel_cfg()
+        self.intel.configure(cfg)
+        if cfg is None:
+            self.intel_status.set(f"Corp Intel: {self._intel_problem()}")
+        elif not self.running:
+            self.intel_status.set(f"Corp Intel: ready — {cfg['system']}")
+
+    def _on_intel_status(self, text: str):
+        # Called from the reporter thread — marshal onto the Tk main thread.
+        try:
+            self.root.after(0, lambda: self.intel_status.set(f"Corp Intel: {text}"))
+        except RuntimeError:
+            pass
+
+    # ------------------------------------------------------------------
     # Auto-restart on setting change
     # ------------------------------------------------------------------
     def _on_setting_changed(self, *_args):
@@ -605,6 +847,14 @@ class App:
             "color": {
                 "colors": [{"hex": self.color_hex_vars[i].get()} for i in range(4)]
             },
+            "intel": {
+                "enabled": self.intel_enabled.get(),
+                "url": self.intel_url.get(),
+                "token": self.intel_token.get(),
+                "pilot": self.intel_pilot.get(),
+                "system": self.intel_system.get(),
+                "label": self.intel_label.get(),
+            },
             "detection": {
                 "tolerance": self.tolerance.get(),
                 "interval_ms": self.interval_ms.get(),
@@ -669,6 +919,14 @@ class App:
                 for i in range(4):
                     item = colors[i] if i < len(colors) and isinstance(colors[i], dict) else {}
                     self.color_hex_vars[i].set(str(item.get("hex", self.color_hex_vars[i].get())))
+
+            intel = data.get("intel", {})
+            self.intel_enabled.set(bool(intel.get("enabled", self.intel_enabled.get())))
+            self.intel_url.set(str(intel.get("url", self.intel_url.get())))
+            self.intel_token.set(str(intel.get("token", self.intel_token.get())))
+            self.intel_pilot.set(str(intel.get("pilot", self.intel_pilot.get())))
+            self.intel_system.set(str(intel.get("system", self.intel_system.get())))
+            self.intel_label.set(str(intel.get("label", self.intel_label.get())))
 
             detection = data.get("detection", {})
             self.tolerance.set(str(detection.get("tolerance", self.tolerance.get())))
@@ -923,6 +1181,10 @@ class App:
 
         self.running = True
         self.status_text.set(f"Status: Monitoring ({self.capture_backend})...")
+        if self._intel_cfg() is not None:
+            self.intel.session_start()
+        else:
+            self.intel_status.set(f"Corp Intel: {self._intel_problem()}")
         self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
         self.monitor_thread.start()
 
@@ -945,6 +1207,7 @@ class App:
 
     def stop(self):
         self.running = False
+        self.intel.session_end()
         self._reset_zone_indicators()
         self.status_text.set("Status: Stopped")
 
@@ -1040,6 +1303,7 @@ class App:
     def on_close(self):
         self._stop_preview()
         self.stop()
+        self.intel.shutdown()
         self.save_profile(show_message=False)
         tmp = getattr(self, "_wav_tmp_path", None)
         if tmp:
@@ -1220,6 +1484,12 @@ class App:
                 if found:
                     clear_played = False   # allow next clear event to fire
                     gone_since_ms = 0.0
+                    # Any colour in any zone is the flag — the board never sees
+                    # which one, but the detail rides along for the event log.
+                    self.intel.set_alerting(
+                        True,
+                        {"zone": matched_zone, "color": color_i, "px": match_count},
+                    )
                 else:
                     if last_found:
                         gone_since_ms = now  # start the clear timer
@@ -1228,6 +1498,7 @@ class App:
                             if not muted:
                                 self._play_clear_tone()
                             clear_played = True
+                            self.intel.set_alerting(False)
                             # Confirmed all-clear: re-arm one-shot for next detection
                             oneshot_silenced = False
                             oneshot_beep_count = 0
@@ -1277,6 +1548,7 @@ class App:
                     f"Status: Error ({type(exc).__name__}) — {exc} "
                     f"(stopped after 5 retries)"
                 )
+                self.intel.session_end()
         finally:
             if sct is not None:
                 sct.close()
