@@ -1124,13 +1124,27 @@ class App:
 
     def _match_zone(self, zone: WatchZone, targets: list, tolerance: int, sct) -> tuple[int, int]:
         if self.capture_backend == "dxcam" and self.dx_camera is not None:
-            frame = self.dx_camera.grab(region=self._dxcam_region(zone))
-            return rgb_frame_best_match(frame, targets, tolerance)
+            try:
+                frame = self.dx_camera.grab(region=self._dxcam_region(zone))
+                return rgb_frame_best_match(frame, targets, tolerance)
+            except Exception:
+                # dxcam is only an accelerator — mss always works. Newer dxcam
+                # defers its cv2 import all the way to grab(), so a build
+                # without opencv gets this far before failing. Losing the alarm
+                # over an optional backend is not acceptable, so demote to mss
+                # and keep watching.
+                self._demote_to_mss()
         if sct is None:
             return 0, -1
         monitor = {"left": zone.x, "top": zone.y, "width": zone.width, "height": zone.height}
         shot = sct.grab(monitor)
         return bgra_buffer_best_match(shot.raw, targets, tolerance)
+
+    def _demote_to_mss(self):
+        """Give up on dxcam for the rest of this run and fall back to mss."""
+        self.dx_camera = None
+        self.capture_backend = "mss" if mss is not None else "none"
+        self._set_status(f"Status: Monitoring ({self.capture_backend}, dxcam unavailable)...")
 
     def start(self, silent: bool = False):
         if self.running:
