@@ -106,6 +106,22 @@ INTEL_HEARTBEAT_SEC = 20.0
 INTEL_TIMEOUT_SEC = 8.0
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse to follow redirects when reporting.
+
+    A gated server bounces an unauthenticated POST to a login page. Following
+    that redirect returns 200 from the login page, which looks exactly like a
+    successful report — so the app would claim it was reporting while the board
+    stayed empty. Failing on the redirect makes the real problem visible.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_INTEL_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 class IntelReporter:
     """Reports watch state to the corp Intel board from a background thread.
 
@@ -218,14 +234,28 @@ class IntelReporter:
         req.add_header("X-Intel-Token", cfg["token"])
         req.add_header("User-Agent", "eve-watch-intel/1.0")
         try:
-            with urllib.request.urlopen(req, timeout=INTEL_TIMEOUT_SEC) as resp:
-                resp.read(256)
+            with _INTEL_OPENER.open(req, timeout=INTEL_TIMEOUT_SEC) as resp:
+                raw = resp.read(4096)
+            # Only our own JSON acknowledgement counts as delivered. Anything
+            # else means something answered on the app's behalf.
+            try:
+                accepted = json.loads(raw.decode("utf-8", "replace")).get("ok") is True
+            except (ValueError, AttributeError):
+                accepted = False
+            if not accepted:
+                self._fail("unexpected reply — check the server address")
+                return
             with self._lock:
                 self._last_ok = time.time()
                 self._last_error = ""
             self._emit("reporting" if payload["watching"] else "stopped reporting")
         except urllib.error.HTTPError as exc:
-            detail = "token rejected" if exc.code in (401, 403) else f"server said {exc.code}"
+            if exc.code in (301, 302, 303, 307, 308):
+                detail = "redirected to a login page — server is gating the report"
+            elif exc.code in (401, 403):
+                detail = "token rejected"
+            else:
+                detail = f"server said {exc.code}"
             self._fail(detail)
         except Exception as exc:
             self._fail(type(exc).__name__)
